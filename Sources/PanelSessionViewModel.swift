@@ -182,15 +182,16 @@ final class PanelSessionViewModel: ObservableObject {
         isOriginalExpanded.toggle()
     }
 
-    func prepareForDismissal() {
-        guard !isDismissed else { return }
+    @discardableResult
+    func prepareForDismissal() -> Bool {
+        guard !isDismissed else { return false }
         isDismissed = true
         invalidateCurrentRequest()
         isLoading = false
+        return true
     }
 
     func close() {
-        prepareForDismissal()
         onClose()
     }
 
