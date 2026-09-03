@@ -51,13 +51,13 @@ final class AppStatePersistenceTests: XCTestCase {
         XCTAssertEqual(storage.defaults.string(forKey: "deepseek_api_key"), "sk-legacy")
     }
 
-    func testLoadInitialAPIKeyFallsBackToLegacyWhenKeychainReadFails() {
+    func testKeychainReadFailureUsesLegacyWithoutWritingItBack() {
         let storage = makeDefaults()
         defer { storage.clear() }
         storage.defaults.set("sk-legacy", forKey: "deepseek_api_key")
         let store = MockAPIKeyStore(
-            loadError: StubStoreError.failed,
-            saveError: StubStoreError.failed
+            value: "sk-newer-keychain",
+            loadError: StubStoreError.failed
         )
 
         let value = AppState.loadInitialAPIKey(
@@ -66,6 +66,8 @@ final class AppStatePersistenceTests: XCTestCase {
         )
 
         XCTAssertEqual(value, "sk-legacy")
+        XCTAssertEqual(store.value, "sk-newer-keychain")
+        XCTAssertTrue(store.savedValues.isEmpty)
         XCTAssertEqual(storage.defaults.string(forKey: "deepseek_api_key"), "sk-legacy")
     }
 
@@ -87,11 +89,14 @@ final class AppStatePersistenceTests: XCTestCase {
         XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
     }
 
-    func testFailedExplicitSaveRemovesLegacyPlaintextSoOldKeyCannotReappear() {
+    func testFailedExplicitSaveRemovesLegacyButLeavesExistingKeychainValueUntouched() {
         let storage = makeDefaults()
         defer { storage.clear() }
-        storage.defaults.set("sk-old", forKey: "deepseek_api_key")
-        let store = MockAPIKeyStore(saveError: StubStoreError.failed)
+        storage.defaults.set("sk-legacy", forKey: "deepseek_api_key")
+        let store = MockAPIKeyStore(
+            value: "sk-current",
+            saveError: StubStoreError.failed
+        )
 
         let success = AppState.persistAPIKey(
             "sk-new",
@@ -101,15 +106,15 @@ final class AppStatePersistenceTests: XCTestCase {
 
         XCTAssertFalse(success)
         XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
-        XCTAssertNil(store.value)
+        XCTAssertEqual(store.value, "sk-current")
     }
 
-    func testClearingAPIKeyRemovesLegacyPlaintextEvenWhenKeychainDeleteFails() {
+    func testFailedExplicitClearRemovesLegacyButLeavesExistingKeychainValueUntouched() {
         let storage = makeDefaults()
         defer { storage.clear() }
         storage.defaults.set("sk-legacy", forKey: "deepseek_api_key")
         let store = MockAPIKeyStore(
-            value: "sk-keychain",
+            value: "sk-current",
             deleteError: StubStoreError.failed
         )
 
@@ -121,24 +126,55 @@ final class AppStatePersistenceTests: XCTestCase {
 
         XCTAssertFalse(success)
         XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
+        XCTAssertEqual(store.value, "sk-current")
         XCTAssertEqual(store.deleteCount, 1)
     }
 
-    func testAppStateSurfacesKeychainWriteFailureAndClearsErrorAfterRecovery() {
+    func testAppStateFailedSaveKeepsLastCommittedRuntimeValue() {
         let storage = makeDefaults()
         defer { storage.clear() }
-        let store = MockAPIKeyStore(saveError: StubStoreError.failed)
+        let store = MockAPIKeyStore(value: "sk-current")
         let appState = AppState(apiKeyStore: store, defaults: storage.defaults)
+        store.saveError = StubStoreError.failed
 
-        appState.apiKey = "sk-new"
+        let success = appState.saveAPIKey("sk-new")
 
+        XCTAssertFalse(success)
+        XCTAssertEqual(appState.apiKey, "sk-current")
+        XCTAssertEqual(store.value, "sk-current")
         XCTAssertNotNil(appState.apiKeyStorageError)
-        XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
+    }
+
+    func testAppStateFailedClearKeepsLastCommittedRuntimeValue() {
+        let storage = makeDefaults()
+        defer { storage.clear() }
+        let store = MockAPIKeyStore(value: "sk-current")
+        let appState = AppState(apiKeyStore: store, defaults: storage.defaults)
+        store.deleteError = StubStoreError.failed
+
+        let success = appState.saveAPIKey("   ")
+
+        XCTAssertFalse(success)
+        XCTAssertEqual(appState.apiKey, "sk-current")
+        XCTAssertEqual(store.value, "sk-current")
+        XCTAssertNotNil(appState.apiKeyStorageError)
+    }
+
+    func testAppStateSuccessfulSaveCommitsRuntimeValueAndClearsPreviousError() {
+        let storage = makeDefaults()
+        defer { storage.clear() }
+        let store = MockAPIKeyStore(value: "sk-current")
+        let appState = AppState(apiKeyStore: store, defaults: storage.defaults)
+        store.saveError = StubStoreError.failed
+
+        XCTAssertFalse(appState.saveAPIKey("sk-failed"))
+        XCTAssertNotNil(appState.apiKeyStorageError)
 
         store.saveError = nil
-        appState.apiKey = "sk-recovered"
+        XCTAssertTrue(appState.saveAPIKey("  sk-recovered  "))
 
         XCTAssertNil(appState.apiKeyStorageError)
+        XCTAssertEqual(appState.apiKey, "sk-recovered")
         XCTAssertEqual(store.value, "sk-recovered")
     }
 
