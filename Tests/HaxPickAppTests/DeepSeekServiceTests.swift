@@ -16,15 +16,19 @@ final class DeepSeekServiceTests: XCTestCase {
         XCTAssertEqual(AppState.persistableAPIKey(from: "  sk-test  "), "sk-test")
     }
 
-    func testCompleteBuildsBearerRequestWithSelectedModelAndFullMessages() async throws {
-        let client = MockDeepSeekHTTPClient(
-            data: Self.successResponseData(content: "  结果  "),
+    func testStreamBuildsBearerRequestAndYieldsSSEChunks() async throws {
+        let client = MockDeepSeekStreamingHTTPClient(
+            lines: [
+                "data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}",
+                "data: [DONE]",
+            ],
             response: Self.httpResponse(statusCode: 200)
         )
         let service = DeepSeekService(
             apiKeyProvider: { "test-key" },
             modelProvider: { .pro },
-            httpClient: client
+            streamingClient: client
         )
         let messages = [
             AiMessage(role: .system, content: "system", isVisible: false),
@@ -33,14 +37,18 @@ final class DeepSeekServiceTests: XCTestCase {
             AiMessage(role: .user, content: "为什么这样翻译？"),
         ]
 
-        let result = try await service.complete(messages: messages)
+        var chunks: [String] = []
+        for try await chunk in service.stream(messages: messages) {
+            chunks.append(chunk)
+        }
 
-        XCTAssertEqual(result, "结果")
+        XCTAssertEqual(chunks, ["你", "好"])
         XCTAssertEqual(client.recordedRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
 
         let body = try XCTUnwrap(client.recordedRequest?.httpBody)
         let payload = try Self.jsonObject(from: body)
         XCTAssertEqual(payload["model"] as? String, "deepseek-v4-pro")
+        XCTAssertEqual(payload["stream"] as? Bool, true)
 
         let requestMessages = try XCTUnwrap(payload["messages"] as? [[String: Any]])
         XCTAssertEqual(requestMessages.count, 4)
@@ -48,21 +56,43 @@ final class DeepSeekServiceTests: XCTestCase {
         XCTAssertEqual(requestMessages[3]["content"] as? String, "为什么这样翻译？")
     }
 
-    func testCompleteMissingAPIKeyDoesNotSendRequest() async {
-        let client = MockDeepSeekHTTPClient(
-            data: Data(),
+    func testCompleteAggregatesStreamedChunks() async throws {
+        let client = MockDeepSeekStreamingHTTPClient(
+            lines: [
+                "data: {\"choices\":[{\"delta\":{\"content\":\" 结\"}}]}",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"果 \"}}]}",
+                "data: [DONE]",
+            ],
+            response: Self.httpResponse(statusCode: 200)
+        )
+        let service = DeepSeekService(
+            apiKeyProvider: { "test-key" },
+            modelProvider: { .flash },
+            streamingClient: client
+        )
+
+        let result = try await service.complete(
+            messages: [AiMessage(role: .user, content: "Hello")]
+        )
+
+        XCTAssertEqual(result, "结果")
+    }
+
+    func testStreamMissingAPIKeyDoesNotSendRequest() async {
+        let client = MockDeepSeekStreamingHTTPClient(
+            lines: [],
             response: Self.httpResponse(statusCode: 200)
         )
         let service = DeepSeekService(
             apiKeyProvider: { "" },
             modelProvider: { .flash },
-            httpClient: client
+            streamingClient: client
         )
 
         do {
-            _ = try await service.complete(
+            for try await _ in service.stream(
                 messages: [AiMessage(role: .user, content: "Hello")]
-            )
+            ) {}
             XCTFail("Expected missingAPIKey error")
         } catch let error as DeepSeekError {
             XCTAssertEqual(error.errorDescription, "请先在菜单栏面板里填写 DeepSeek API Key。")
@@ -73,6 +103,32 @@ final class DeepSeekServiceTests: XCTestCase {
         XCTAssertNil(client.recordedRequest)
     }
 
+    func testStreamMapsHTTPErrorBody() async {
+        let client = MockDeepSeekStreamingHTTPClient(
+            lines: ["{\"error\":{\"message\":\"Authentication Fails, api key invalid\"}}"],
+            response: Self.httpResponse(statusCode: 401)
+        )
+        let service = DeepSeekService(
+            apiKeyProvider: { "bad-key" },
+            modelProvider: { .flash },
+            streamingClient: client
+        )
+
+        do {
+            for try await _ in service.stream(
+                messages: [AiMessage(role: .user, content: "Hello")]
+            ) {}
+            XCTFail("Expected requestFailed error")
+        } catch let error as DeepSeekError {
+            XCTAssertEqual(
+                error.errorDescription,
+                "DeepSeek 认证失败：API Key 无效或授权不足。请确认你填的是 DeepSeek 平台可用的 Key，并切换模型后重试。"
+            )
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testRequestFailed401ScopeMessageIsExplained() {
         let error = DeepSeekError.requestFailed(statusCode: 401, message: "Authentication Fails, Your api key: ****cope is invalid")
         XCTAssertEqual(
@@ -81,26 +137,12 @@ final class DeepSeekServiceTests: XCTestCase {
         )
     }
 
-    private static func successResponseData(content: String) -> Data {
-        let body: [String: Any] = [
-            "choices": [
-                [
-                    "message": [
-                        "role": "assistant",
-                        "content": content
-                    ]
-                ]
-            ]
-        ]
-        return try! JSONSerialization.data(withJSONObject: body)
-    }
-
     private static func httpResponse(statusCode: Int) -> HTTPURLResponse {
         HTTPURLResponse(
             url: URL(string: "https://api.deepseek.com/chat/completions")!,
             statusCode: statusCode,
             httpVersion: "HTTP/1.1",
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: ["Content-Type": "text/event-stream"]
         )!
     }
 
@@ -110,18 +152,25 @@ final class DeepSeekServiceTests: XCTestCase {
     }
 }
 
-private final class MockDeepSeekHTTPClient: DeepSeekHTTPClient {
-    let data: Data
+private final class MockDeepSeekStreamingHTTPClient: DeepSeekStreamingHTTPClient {
+    let lineValues: [String]
     let response: URLResponse
     private(set) var recordedRequest: URLRequest?
 
-    init(data: Data, response: URLResponse) {
-        self.data = data
+    init(lines: [String], response: URLResponse) {
+        self.lineValues = lines
         self.response = response
     }
 
-    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+    func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
         recordedRequest = request
-        return (data, response)
+        let values = lineValues
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            for line in values {
+                continuation.yield(line)
+            }
+            continuation.finish()
+        }
+        return (stream, response)
     }
 }
