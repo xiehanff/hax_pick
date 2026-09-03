@@ -132,7 +132,7 @@ struct ResultPanelView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .background(
-                        ScrollWheelInteractionMonitor {
+                        ManualScrollInteractionMonitor {
                             followTailState.userDidScroll()
                         }
                     )
@@ -247,7 +247,7 @@ struct ChatFollowTailState: Equatable {
     }
 }
 
-private struct ScrollWheelInteractionMonitor: NSViewRepresentable {
+private struct ManualScrollInteractionMonitor: NSViewRepresentable {
     let onUserScroll: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -280,7 +280,8 @@ private struct ScrollWheelInteractionMonitor: NSViewRepresentable {
 
         func installMonitor() {
             guard eventMonitor == nil else { return }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            let mask: NSEvent.EventTypeMask = [.scrollWheel, .leftMouseDragged]
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
                 guard let self,
                       let view,
                       event.window === view.window else {
@@ -288,8 +289,7 @@ private struct ScrollWheelInteractionMonitor: NSViewRepresentable {
                 }
 
                 let point = view.convert(event.locationInWindow, from: nil)
-                let hasScrollDelta = abs(event.scrollingDeltaY) > 0.01 || abs(event.scrollingDeltaX) > 0.01
-                guard hasScrollDelta, view.bounds.contains(point) else {
+                guard view.bounds.contains(point), Self.isManualScrollInteraction(event) else {
                     return event
                 }
 
@@ -304,6 +304,17 @@ private struct ScrollWheelInteractionMonitor: NSViewRepresentable {
             if let eventMonitor {
                 NSEvent.removeMonitor(eventMonitor)
                 self.eventMonitor = nil
+            }
+        }
+
+        private static func isManualScrollInteraction(_ event: NSEvent) -> Bool {
+            switch event.type {
+            case .scrollWheel:
+                return abs(event.scrollingDeltaY) > 0.01 || abs(event.scrollingDeltaX) > 0.01
+            case .leftMouseDragged:
+                return true
+            default:
+                return false
             }
         }
 
