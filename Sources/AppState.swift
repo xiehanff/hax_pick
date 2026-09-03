@@ -121,19 +121,22 @@ final class AppState: ObservableObject {
         store: any APIKeyStoring,
         legacyDefaults: UserDefaults
     ) -> String {
-        if let storedValue = try? store.load() {
-            let normalized = normalizedAPIKey(from: storedValue)
-            if !normalized.isEmpty {
-                legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-                if normalized != storedValue {
-                    try? store.save(normalized)
+        do {
+            if let storedValue = try store.load() {
+                let normalized = normalizedAPIKey(from: storedValue)
+                if !normalized.isEmpty {
+                    legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
+                    if normalized != storedValue {
+                        try? store.save(normalized)
+                    }
+                    return normalized
                 }
-                return normalized
-            }
 
-            if storedValue != nil {
                 try? store.delete()
             }
+        } catch {
+            // A Keychain read error must not delete the legacy fallback. Migration
+            // can retry on the next launch instead of losing the only persisted key.
         }
 
         let legacyValue = legacyDefaults.string(forKey: legacyAPIKeyStorageKey)
