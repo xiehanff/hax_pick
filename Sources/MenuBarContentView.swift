@@ -25,8 +25,6 @@ struct MenuBarContentView: View {
         .environment(\.colorScheme, .light)
     }
 
-    // MARK: - 顶部
-
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
@@ -54,8 +52,6 @@ struct MenuBarContentView: View {
                 .padding(.top, 8)
         }
     }
-
-    // MARK: - 权限区域
 
     private var permissionSection: some View {
         cardSection(title: "权限") {
@@ -89,8 +85,6 @@ struct MenuBarContentView: View {
             }
         }
     }
-
-    // MARK: - API Key 区域
 
     @State private var apiKeyVisible = false
 
@@ -129,14 +123,18 @@ struct MenuBarContentView: View {
                         .stroke(AppTheme.border, lineWidth: 1)
                 )
 
-                Text("Key 保存在本地，可随时修改。")
-                    .font(.system(size: 10))
-                    .foregroundColor(AppTheme.textSecondary)
+                if let apiKeyStorageError = appState.apiKeyStorageError {
+                    Text(apiKeyStorageError)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.orange)
+                } else {
+                    Text("Key 保存在 macOS Keychain，可随时修改。")
+                        .font(.system(size: 10))
+                        .foregroundColor(AppTheme.textSecondary)
+                }
             }
         }
     }
-
-    // MARK: - 模型选择
 
     private var modelSection: some View {
         cardSection(title: "模型") {
@@ -170,8 +168,6 @@ struct MenuBarContentView: View {
         }
     }
 
-    // MARK: - 底部操作
-
     private var bottomActions: some View {
         HStack(spacing: 8) {
             Button("系统设置") {
@@ -188,8 +184,6 @@ struct MenuBarContentView: View {
             .keyboardShortcut(.cancelAction)
         }
     }
-
-    // MARK: - 卡片容器
 
     @ViewBuilder
     private func cardSection(title: String, @ViewBuilder content: () -> some View) -> some View {
