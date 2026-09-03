@@ -4,18 +4,22 @@ import SwiftUI
 @MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
-    private static let apiKeyStorageKey = "deepseek_api_key"
+    private static let legacyAPIKeyStorageKey = "deepseek_api_key"
     private static let modelStorageKey = "deepseek_model"
 
     @Published var apiKey: String {
         didSet {
-            Self.persistAPIKey(apiKey, defaults: .standard)
+            Self.persistAPIKey(
+                apiKey,
+                store: apiKeyStore,
+                legacyDefaults: defaults
+            )
         }
     }
 
     @Published var selectedModel: DeepSeekService.Model {
         didSet {
-            UserDefaults.standard.set(selectedModel.rawValue, forKey: Self.modelStorageKey)
+            defaults.set(selectedModel.rawValue, forKey: Self.modelStorageKey)
         }
     }
 
@@ -24,6 +28,8 @@ final class AppState: ObservableObject {
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
 
+    private let apiKeyStore: any APIKeyStoring
+    private let defaults: UserDefaults
     private let panelController = ToolbarPanelController()
     private lazy var permissionGuideController = PermissionGuideWindowController(appState: self)
     private lazy var deepSeekService = DeepSeekService(apiKeyProvider: { [weak self] in
@@ -45,14 +51,20 @@ final class AppState: ObservableObject {
     )
     private var hasStarted = false
 
-    init() {
-        let storedAPIKey = UserDefaults.standard.string(forKey: Self.apiKeyStorageKey)
-        let normalizedAPIKey = Self.normalizedAPIKey(from: storedAPIKey)
-        self.apiKey = normalizedAPIKey
-        if normalizedAPIKey != storedAPIKey?.trimmingCharacters(in: .whitespacesAndNewlines) {
-            Self.persistAPIKey(normalizedAPIKey, defaults: .standard)
-        }
-        self.selectedModel = DeepSeekService.Model(rawValue: UserDefaults.standard.string(forKey: Self.modelStorageKey) ?? "") ?? .flash
+    init(
+        apiKeyStore: any APIKeyStoring = KeychainAPIKeyStore(),
+        defaults: UserDefaults = .standard
+    ) {
+        self.apiKeyStore = apiKeyStore
+        self.defaults = defaults
+        self.apiKey = Self.loadInitialAPIKey(
+            store: apiKeyStore,
+            legacyDefaults: defaults
+        )
+        self.selectedModel = DeepSeekService.Model(
+            rawValue: defaults.string(forKey: Self.modelStorageKey) ?? ""
+        ) ?? .flash
+
         panelController.onDismissSelection = { [weak self] text in
             self?.selectionMonitor.ignoreCurrentSelection(text)
         }
@@ -105,11 +117,64 @@ final class AppState: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func persistAPIKey(_ value: String, defaults: UserDefaults) {
-        if let persistedAPIKey = persistableAPIKey(from: value) {
-            defaults.set(persistedAPIKey, forKey: apiKeyStorageKey)
-        } else {
-            defaults.removeObject(forKey: apiKeyStorageKey)
+    static func loadInitialAPIKey(
+        store: any APIKeyStoring,
+        legacyDefaults: UserDefaults
+    ) -> String {
+        if let storedValue = try? store.load() {
+            let normalized = normalizedAPIKey(from: storedValue)
+            if !normalized.isEmpty {
+                legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
+                if normalized != storedValue {
+                    try? store.save(normalized)
+                }
+                return normalized
+            }
+
+            if storedValue != nil {
+                try? store.delete()
+            }
+        }
+
+        let legacyValue = legacyDefaults.string(forKey: legacyAPIKeyStorageKey)
+        let normalizedLegacyValue = normalizedAPIKey(from: legacyValue)
+        guard !normalizedLegacyValue.isEmpty else {
+            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
+            return ""
+        }
+
+        do {
+            try store.save(normalizedLegacyValue)
+            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
+        } catch {
+            // Migration is best-effort. Keep the legacy value so a failed Keychain
+            // write does not silently erase the user's only persisted credential.
+        }
+        return normalizedLegacyValue
+    }
+
+    @discardableResult
+    static func persistAPIKey(
+        _ value: String,
+        store: any APIKeyStoring,
+        legacyDefaults: UserDefaults
+    ) -> Bool {
+        guard let persistedAPIKey = persistableAPIKey(from: value) else {
+            do {
+                try store.delete()
+                legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
+                return true
+            } catch {
+                return false
+            }
+        }
+
+        do {
+            try store.save(persistedAPIKey)
+            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
+            return true
+        } catch {
+            return false
         }
     }
 
