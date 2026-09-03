@@ -28,9 +28,9 @@ struct AiMessage: Identifiable, Equatable {
 /// Shapes only the model request snapshot. Local conversation history remains intact.
 ///
 /// The budget is intentionally expressed in characters rather than pretending to be
-/// an exact tokenizer count. The two hidden anchor messages (system + original tool
-/// context) and the newest conversation unit are mandatory, so very large source text
-/// can exceed the soft budget instead of being silently truncated.
+/// an exact tokenizer count. The hidden anchors and newest dependency unit are
+/// mandatory, so very large source text or the latest turn can exceed the soft budget
+/// instead of being silently truncated.
 struct AiHistoryWindow {
     static let standard = AiHistoryWindow(maxContentCharacters: 48_000)
 
@@ -85,9 +85,10 @@ struct AiHistoryWindow {
         return index
     }
 
-    /// Returns contiguous conversation units from newest to oldest. A pending newest
-    /// user message is its own unit; older user/assistant exchanges stay paired so a
-    /// window never begins with an assistant whose question was discarded.
+    /// Returns contiguous conversation units from newest to oldest. If the request ends
+    /// with a pending user message, the newest unit also keeps the immediately preceding
+    /// assistant response and its user question when present. This prevents a follow-up
+    /// such as “why?” from being detached from the answer it directly references.
     private func newestFirstUnits(from messages: [AiMessage]) -> [[AiMessage]] {
         guard !messages.isEmpty else { return [] }
 
@@ -95,8 +96,20 @@ struct AiHistoryWindow {
         var index = messages.count - 1
 
         if messages[index].role == .user {
-            units.append([messages[index]])
+            var newestUnit = [messages[index]]
             index -= 1
+
+            if index >= 0, messages[index].role == .assistant {
+                newestUnit.insert(messages[index], at: 0)
+                index -= 1
+
+                if index >= 0, messages[index].role == .user {
+                    newestUnit.insert(messages[index], at: 0)
+                    index -= 1
+                }
+            }
+
+            units.append(newestUnit)
         }
 
         while index >= 0 {
