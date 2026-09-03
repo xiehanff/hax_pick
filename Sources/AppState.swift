@@ -163,9 +163,9 @@ final class AppState: ObservableObject {
         legacyDefaults: UserDefaults
     ) -> Bool {
         guard let persistedAPIKey = persistableAPIKey(from: value) else {
+            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
             do {
                 try store.delete()
-                legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
                 return true
             } catch {
                 return false
