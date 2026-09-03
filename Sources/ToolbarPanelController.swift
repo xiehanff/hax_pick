@@ -68,9 +68,9 @@ final class ToolbarPanelController {
     private func panelSize(for mode: PanelSessionViewModel.PanelMode) -> NSSize {
         switch mode {
         case .toolbar:
-            return NSSize(width: 320, height: 48)
+            return FloatingPanelLayout.toolbarSize
         case .result:
-            return NSSize(width: 436, height: 628)
+            return FloatingPanelLayout.resultSize
         }
     }
 
@@ -165,6 +165,7 @@ final class ToolbarPanelController {
     }
 
     private func dismissPanel() {
+        sessionViewModel?.prepareForDismissal()
         if let text = sessionViewModel?.selectedText, !text.isEmpty {
             onDismissSelection?(text)
         }
