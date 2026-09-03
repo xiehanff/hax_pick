@@ -13,27 +13,38 @@ final class PanelSessionViewModelTests: XCTestCase {
 
         viewModel.reset(with: "selection-b")
         await performer.succeed("result-a")
-        await Task.yield()
+
+        viewModel.handlePrimaryAction(.translate)
+        try await waitForPendingRequest(in: performer)
+        await performer.succeed("result-b")
+        try await waitUntil { viewModel.conversationTurns.count == 1 }
 
         XCTAssertEqual(viewModel.selectedText, "selection-b")
-        XCTAssertTrue(viewModel.conversationTurns.isEmpty)
+        XCTAssertEqual(viewModel.conversationTurns.map(\.answer), ["result-b"])
         XCTAssertFalse(viewModel.isLoading)
-        XCTAssertEqual(viewModel.statusHint, "请选择动作")
+        XCTAssertEqual(viewModel.statusHint, "生成完成")
     }
 
-    func testDismissalDiscardsLateResult() async throws {
+    func testDismissalDiscardsLateResultAfterSessionReuse() async throws {
         let performer = DeferredPerformer()
         let viewModel = makeViewModel(performer: performer)
 
-        viewModel.reset(with: "selection")
+        viewModel.reset(with: "selection-a")
         viewModel.handlePrimaryAction(.explain)
         try await waitForPendingRequest(in: performer)
 
-        viewModel.prepareForDismissal()
-        await performer.succeed("late-result")
-        await Task.yield()
+        XCTAssertTrue(viewModel.prepareForDismissal())
+        XCTAssertFalse(viewModel.prepareForDismissal())
+        await performer.succeed("late-result-a")
 
-        XCTAssertTrue(viewModel.conversationTurns.isEmpty)
+        viewModel.reset(with: "selection-b")
+        viewModel.handlePrimaryAction(.explain)
+        try await waitForPendingRequest(in: performer)
+        await performer.succeed("result-b")
+        try await waitUntil { viewModel.conversationTurns.count == 1 }
+
+        XCTAssertEqual(viewModel.selectedText, "selection-b")
+        XCTAssertEqual(viewModel.conversationTurns.map(\.answer), ["result-b"])
         XCTAssertFalse(viewModel.isLoading)
     }
 
@@ -46,9 +57,8 @@ final class PanelSessionViewModelTests: XCTestCase {
         try await waitForPendingRequest(in: performer)
 
         await performer.succeed("summary")
-        await Task.yield()
+        try await waitUntil { viewModel.conversationTurns.count == 1 }
 
-        XCTAssertEqual(viewModel.conversationTurns.count, 1)
         XCTAssertEqual(viewModel.conversationTurns.first?.answer, "summary")
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertEqual(viewModel.statusHint, "生成完成")
@@ -69,19 +79,30 @@ final class PanelSessionViewModelTests: XCTestCase {
     }
 
     private func waitForPendingRequest(in performer: DeferredPerformer) async throws {
-        for _ in 0..<50 {
+        for _ in 0..<100 {
             if await performer.pendingCount() > 0 {
                 return
             }
             await Task.yield()
         }
         XCTFail("Expected an AI request to become pending")
-        throw TestError.requestDidNotStart
+        throw TestError.conditionNotMet
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        for _ in 0..<100 {
+            if condition() {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Expected asynchronous condition to become true")
+        throw TestError.conditionNotMet
     }
 }
 
 private enum TestError: Error {
-    case requestDidNotStart
+    case conditionNotMet
 }
 
 private actor DeferredPerformer {
