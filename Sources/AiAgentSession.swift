@@ -42,9 +42,12 @@ final class AiAgentSession: ObservableObject {
     private var activeDraftContent = ""
     private var lastDraftPublishNanoseconds: UInt64?
 
-    init(service: DeepSeekService) {
+    init(
+        service: DeepSeekService,
+        historyWindow: AiHistoryWindow = .standard
+    ) {
         self.stream = { messages in
-            service.stream(messages: messages)
+            service.stream(messages: historyWindow.requestMessages(from: messages))
         }
         self.publishIntervalNanoseconds = 40_000_000
     }
