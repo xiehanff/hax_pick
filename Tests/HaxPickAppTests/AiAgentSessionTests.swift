@@ -51,6 +51,33 @@ final class AiAgentSessionTests: XCTestCase {
         )
     }
 
+    func testInitialFailureRequiresRetryBeforeFollowUp() async throws {
+        let responder = ScriptedResponder(outcomes: [
+            .failure("temporary failure"),
+            .success("recovered"),
+        ])
+        let session = makeSession(responder: responder)
+
+        session.runToolAction(.explain, sourceText: "source")
+        try await waitUntil { session.errorMessage != nil && !session.isLoading }
+
+        XCTAssertTrue(session.visibleMessages.isEmpty)
+        XCTAssertFalse(session.sendMessage("follow up"))
+        XCTAssertEqual(session.messages.map(\.role), [.system, .user])
+        XCTAssertEqual(responder.requests.count, 1)
+
+        session.retry()
+        try await waitUntil { session.visibleMessages.count == 1 }
+
+        XCTAssertEqual(session.visibleMessages.map(\.content), ["recovered"])
+        XCTAssertNil(session.errorMessage)
+        XCTAssertEqual(responder.requests.count, 2)
+        XCTAssertEqual(
+            responder.requests[0].map(\.content),
+            responder.requests[1].map(\.content)
+        )
+    }
+
     func testFailedFollowUpRollsBackUserAndDoesNotPolluteHistory() async throws {
         let responder = ScriptedResponder(outcomes: [
             .success("initial"),
