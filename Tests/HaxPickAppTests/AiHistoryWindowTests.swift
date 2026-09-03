@@ -16,16 +16,30 @@ final class AiHistoryWindowTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [system.id, source.id, q1.id, a1.id, q2.id])
     }
 
-    func testNeverTruncatesMandatoryAnchorsOrNewestUserMessage() {
+    func testNeverTruncatesAnchorsOrDirectFollowUpDependency() {
         let system = AiMessage(role: .system, content: String(repeating: "s", count: 20), isVisible: false)
         let source = AiMessage(role: .user, content: String(repeating: "x", count: 20), isVisible: false)
-        let oldAnswer = AiMessage(role: .assistant, content: "old")
+        let previousAnswer = AiMessage(role: .assistant, content: String(repeating: "a", count: 30))
         let newestQuestion = AiMessage(role: .user, content: String(repeating: "q", count: 30))
 
         let window = AiHistoryWindow(maxContentCharacters: 10)
-        let result = window.requestMessages(from: [system, source, oldAnswer, newestQuestion])
+        let result = window.requestMessages(from: [system, source, previousAnswer, newestQuestion])
 
-        XCTAssertEqual(result.map(\.id), [system.id, source.id, newestQuestion.id])
+        XCTAssertEqual(result.map(\.id), [system.id, source.id, previousAnswer.id, newestQuestion.id])
+    }
+
+    func testNewestPendingQuestionKeepsPreviousExchangeEvenWhenItExceedsBudget() {
+        let system = AiMessage(role: .system, content: "sys", isVisible: false)
+        let source = AiMessage(role: .user, content: "src", isVisible: false)
+        let a0 = AiMessage(role: .assistant, content: "old-initial")
+        let q1 = AiMessage(role: .user, content: String(repeating: "q", count: 20))
+        let a1 = AiMessage(role: .assistant, content: String(repeating: "a", count: 20))
+        let q2 = AiMessage(role: .user, content: "why?")
+
+        let window = AiHistoryWindow(maxContentCharacters: 12)
+        let result = window.requestMessages(from: [system, source, a0, q1, a1, q2])
+
+        XCTAssertEqual(result.map(\.id), [system.id, source.id, q1.id, a1.id, q2.id])
     }
 
     func testDoesNotStartWindowWithOrphanedAssistant() {
