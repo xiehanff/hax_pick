@@ -13,6 +13,7 @@ final class AiAgentSession: ObservableObject {
     @Published private(set) var didStop = false
 
     private(set) var draftRevision = 0
+    private(set) var requestRevision = 0
 
     private enum RetryPlan {
         case currentContext
@@ -224,6 +225,7 @@ final class AiAgentSession: ObservableObject {
     ) {
         guard !isLoading else { return }
 
+        requestRevision += 1
         let requestGeneration = generation
         let requestMessages = explicitRequestMessages ?? messages
         let performer = stream
