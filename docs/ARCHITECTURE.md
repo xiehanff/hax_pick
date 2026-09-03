@@ -26,7 +26,7 @@ Xcode 工程无独立测试 target，单元测试由 SPM `HaxPickAppTests` 承�
 
 - macOS 13+（`Package.swift` 声明 `.macOS(.v13)`，`Info.plist` 设 `LSMinimumSystemVersion = 13.0`）
 - Swift 5.9（`Package.swift` `swift-tools-version: 5.9`）
-- 应用是纯菜单栏模式：`LSUIElement = true` + `NSApp.setActivationPolicy(.accessory)`，**没有 Dock 图标**，因此也不能依赖普通主窗口生命周期
+- 应用是纯菜单栏模式：`LSUIElement = true` + `NSApp.setActivationPolicy(.accessory)`，**没有 Dock 图标**，因此不能依赖普通主窗口生命周期
 
 ## 架构
 
@@ -102,7 +102,7 @@ assistant: A2（可见）
 ...
 ```
 
-`isVisible` 只控制本地 UI 是否渲染，不影响 DeepSeek 请求。DeepSeekService 会把完整 history 的 `role + content` 全部发送给模型。
+`isVisible` 只控制本地 UI 是否渲染，不影响 DeepSeek 请求。`DeepSeekService` 会把完整 history 的 `role + content` 全部发送给模型。
 
 因此后续追问不再使用旧的：
 
@@ -182,10 +182,30 @@ append user Q
 失败重试与成功后“重新生成”使用不同语义：
 
 - 初次工具请求失败：复用当前隐藏 system/user context
-- 追问失败：失败时已回滚 user，retry 时只重新 append 一次该 user message
-- 已成功响应后重新生成：删除最后一条 assistant，再用它之前的完整 history 重发
+- 追问失败：失败时回滚 pending user；retry 时只重新 append 一次该 user message
+- 已成功响应后重新生成：保留当前 assistant 作为已提交结果，同时构造一个“不包含该 assistant”的 request snapshot 发给模型
 
-因此 retry 不会产生重复 user history。
+Regenerate 使用事务式提交：
+
+```text
+已提交 history：... user Q1 → assistant A1
+                    │
+                    ├─ UI 继续保留 A1
+                    │
+                    └─ request snapshot：... user Q1
+                                      ↓
+                              请求新的 assistant
+```
+
+结果：
+
+```text
+成功：原位把 A1 替换为 A1-new
+失败：保留 A1 + 展示 errorMessage
+      retry 继续使用同一个 pre-regenerate snapshot
+```
+
+这样网络失败不会销毁用户已经拿到的成功回答，也不会把 history 留在未回答的 user message 上。
 
 在首次 assistant 响应成功之前，Session 不接受 follow-up；初始请求失败时应该先 retry，而不是基于不存在的结果继续追问。
 
@@ -233,6 +253,7 @@ Streaming / SSE 不在当前架构阶段实现。
 - `PanelSessionViewModel` 不应该重新持有 HTTP Task / generation / conversation history
 - `AiAgentSession` 是 AI 会话状态的唯一写入点
 - `DeepSeekService` 不应该重新加入 tool action switch、prompt 拼接或“上一轮结果”逻辑
+- Regenerate 必须保持事务式：请求失败不能删除最后一个已提交 assistant
 - 不要在 `FloatingToolbarView` 中直接操作 `NSPanel`
 - 新增 Sources 文件时必须同时加入 `hax_pick.xcodeproj` Sources build phase；`swift test` 通过并不代表实际 `.app` target 已包含新文件
 - `ClipboardSelectionService.simulateCommandC()` 使用 `.cghidEventTap`，不要随意更改
