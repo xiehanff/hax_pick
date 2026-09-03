@@ -326,8 +326,20 @@ final class AppState: ObservableObject {
                     )
                 }
             }
+        } catch APIKeyStoreError.invalidStoredValue {
+            // The item was found, but its payload is deterministically unusable.
+            // Unlike a transient Keychain read error, it is safe to delete this
+            // known-bad item before considering legacy migration.
+            do {
+                try store.delete()
+            } catch {
+                return APIKeyLoadResult(
+                    value: legacyValue,
+                    storageState: .keychainUnavailable
+                )
+            }
         } catch {
-            // A Keychain read error makes the authoritative credential unknown.
+            // A transient Keychain read error makes the authoritative credential unknown.
             // The legacy value may be used for this launch, but must not be written
             // back into Keychain because doing so could overwrite a newer key that
             // merely failed to read transiently.
