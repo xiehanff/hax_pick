@@ -56,6 +56,66 @@ final class DeepSeekServiceTests: XCTestCase {
         XCTAssertEqual(requestMessages[3]["content"] as? String, "为什么这样翻译？")
     }
 
+    func testStreamIgnoresKeepAliveCommentsAndBlankLines() async throws {
+        let client = MockDeepSeekStreamingHTTPClient(
+            lines: [
+                ": keep-alive",
+                "",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}",
+                ": keep-alive",
+                "data: [DONE]",
+            ],
+            response: Self.httpResponse(statusCode: 200)
+        )
+        let service = DeepSeekService(
+            apiKeyProvider: { "test-key" },
+            modelProvider: { .flash },
+            streamingClient: client
+        )
+
+        var chunks: [String] = []
+        for try await chunk in service.stream(
+            messages: [AiMessage(role: .user, content: "Hello")]
+        ) {
+            chunks.append(chunk)
+        }
+
+        XCTAssertEqual(chunks, ["ok"])
+    }
+
+    func testStreamRejectsEOFBeforeDoneAfterPartialContent() async {
+        let client = MockDeepSeekStreamingHTTPClient(
+            lines: [
+                "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}",
+            ],
+            response: Self.httpResponse(statusCode: 200)
+        )
+        let service = DeepSeekService(
+            apiKeyProvider: { "test-key" },
+            modelProvider: { .flash },
+            streamingClient: client
+        )
+
+        var chunks: [String] = []
+        do {
+            for try await chunk in service.stream(
+                messages: [AiMessage(role: .user, content: "Hello")]
+            ) {
+                chunks.append(chunk)
+            }
+            XCTFail("Expected incompleteStream error")
+        } catch let error as DeepSeekError {
+            XCTAssertEqual(
+                error.errorDescription,
+                "DeepSeek 流式响应提前中断，回答可能不完整，请重试。"
+            )
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(chunks, ["partial"])
+    }
+
     func testCompleteAggregatesStreamedChunks() async throws {
         let client = MockDeepSeekStreamingHTTPClient(
             lines: [
