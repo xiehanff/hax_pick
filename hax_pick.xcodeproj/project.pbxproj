@@ -25,6 +25,10 @@
 		ED30EBA5963281F2E4F8058A /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */; };
 		A1B2C3D4E5F6A7B8C9D0E1F2 /* PanelSessionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F3 /* PanelSessionViewModel.swift */; };
 		B1B2C3D4E5F6A7B8C9D0E1F2 /* MarkdownWithCodeBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6A7B8C9D0E1F3 /* MarkdownWithCodeBlocks.swift */; };
+		D00100000000000000000001 /* AiMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00100000000000000000001 /* AiMessage.swift */; };
+		D00200000000000000000001 /* AiToolAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00200000000000000000001 /* AiToolAction.swift */; };
+		D00300000000000000000001 /* AiPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00300000000000000000001 /* AiPrompts.swift */; };
+		D00400000000000000000001 /* AiAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00400000000000000000001 /* AiAgentSession.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +51,10 @@
 		9779A4F7D84B4E54B8B8BBE4 /* PermissionGuideWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PermissionGuideWindowController.swift; path = Sources/PermissionGuideWindowController.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6A7B8C9D0E1F3 /* PanelSessionViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PanelSessionViewModel.swift; path = Sources/PanelSessionViewModel.swift; sourceTree = "<group>"; };
 		B1B2C3D4E5F6A7B8C9D0E1F3 /* MarkdownWithCodeBlocks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MarkdownWithCodeBlocks.swift; path = Sources/MarkdownWithCodeBlocks.swift; sourceTree = "<group>"; };
+		E00100000000000000000001 /* AiMessage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiMessage.swift; path = Sources/AiMessage.swift; sourceTree = "<group>"; };
+		E00200000000000000000001 /* AiToolAction.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiToolAction.swift; path = Sources/AiToolAction.swift; sourceTree = "<group>"; };
+		E00300000000000000000001 /* AiPrompts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiPrompts.swift; path = Sources/AiPrompts.swift; sourceTree = "<group>"; };
+		E00400000000000000000001 /* AiAgentSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiAgentSession.swift; path = Sources/AiAgentSession.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -83,6 +91,10 @@
 				19B033F4FE85DBDBF4C5ECEC /* AccessibilityTextService.swift */,
 				488C96139802ED625DDC07B4 /* AppState.swift */,
 				2B7E8E6F3A66451D9B5B3C00 /* AppBrandIcon.swift */,
+				E00400000000000000000001 /* AiAgentSession.swift */,
+				E00100000000000000000001 /* AiMessage.swift */,
+				E00300000000000000000001 /* AiPrompts.swift */,
+				E00200000000000000000001 /* AiToolAction.swift */,
 				CFE29E9AF6DE0BFBEC1D19C8 /* HaxPickApp.swift */,
 				3883879D2FB44B548CFA1F4B /* DeepSeekService.swift */,
 				CD753ED6486BAD2CB04E7DEC /* FloatingToolbarView.swift */,
@@ -127,7 +139,6 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
-
 /* Begin PBXNativeTarget section */
 		7A9EF46E6729A9B1A0E5C343 /* hax_pick */ = {
 			isa = PBXNativeTarget;
@@ -211,6 +222,10 @@
 				07FEAB7A1687BCDB6364BC28 /* AccessibilityTextService.swift in Sources */,
 				1ADDDF52F474EEC3D875A8F5 /* AppState.swift in Sources */,
 				2B7E8E6F3A66451D9B5B3C01 /* AppBrandIcon.swift in Sources */,
+				D00400000000000000000001 /* AiAgentSession.swift in Sources */,
+				D00100000000000000000001 /* AiMessage.swift in Sources */,
+				D00300000000000000000001 /* AiPrompts.swift in Sources */,
+				D00200000000000000000001 /* AiToolAction.swift in Sources */,
 				3CDF54297A7BEDD0FE004128 /* HaxPickApp.swift in Sources */,
 				85FB0E86B29023FEC558CEB8 /* DeepSeekService.swift in Sources */,
 				9CEF5243E522960A65A99C65 /* FloatingToolbarView.swift in Sources */,
