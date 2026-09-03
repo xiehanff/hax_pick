@@ -143,8 +143,12 @@ struct MenuBarContentView: View {
 
                     if appState.canRetryAPIKeyStorage {
                         Button("重试") {
+                            let committedBeforeRetry = appState.apiKey
+                            let draftWasUnmodified = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines) == committedBeforeRetry
                             _ = appState.retryAPIKeyStorage()
-                            apiKeyDraft = appState.apiKey
+                            if draftWasUnmodified {
+                                apiKeyDraft = appState.apiKey
+                            }
                         }
                         .buttonStyle(SecondaryButtonStyle())
                     }
