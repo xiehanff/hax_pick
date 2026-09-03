@@ -36,8 +36,8 @@ HaxPickApp
             ├── PermissionGuideWindowController
             ├── ToolbarPanelController（NSPanel 生命周期）
             │    └── PanelSessionViewModel（Panel / UI 状态投影）
-            │         └── AiAgentSession（AI history / streaming / retry / stop）
-            │              ├── AiMessage
+            │         └── AiAgentSession（AI history / request window / streaming / retry / stop）
+            │              ├── AiMessage / AiHistoryWindow
             │              ├── AiToolAction
             │              ├── AiPrompts
             │              └── DeepSeekService（SSE transport / DTO / error mapping）
@@ -56,10 +56,11 @@ HaxPickApp
 - `KeychainAPIKeyStore`：DeepSeek API Key 的 Generic Password 读写，不负责 UI 或迁移策略
 - `ToolbarPanelController`：NSPanel 创建、定位、聚焦、dismiss
 - `PanelSessionViewModel`：toolbar/result 模式、选中文本、输入框、原文展开状态，以及对 `AiAgentSession` 的 UI 投影
-- `AiAgentSession`：AI history、streaming draft、generation、cancel、stop、retry、rollback
+- `AiAgentSession`：本地完整 AI history、发送前 request window、streaming draft、generation、cancel、stop、retry、rollback
+- `AiHistoryWindow`：只塑形发送给模型的 request snapshot，不删除本地 conversation history
 - `AiPrompts`：system prompt / 首次工具 prompt
 - `AiToolAction`：工具动作与展示 metadata
-- `DeepSeekService`：把 `[AiMessage]` 序列化为 DeepSeek 请求并解析 SSE chunk，不负责 conversation 业务规则
+- `DeepSeekService`：把已经塑形的 `[AiMessage]` 序列化为 DeepSeek 请求并解析 SSE chunk，不负责 conversation 业务规则
 
 ## 双通道划词读取
 
@@ -86,9 +87,9 @@ HaxPickApp
 
 `.toolbar` 不主动 activate，`hidesOnDeactivate = false`；`.result` 使用 `activate + makeKeyAndOrderFront`，并设置 `hidesOnDeactivate = true`。
 
-## AI Session 与完整历史
+## AI Session、本地完整历史与请求窗口
 
-一次工具任务的模型历史：
+一次工具任务的本地模型历史：
 
 ```text
 system（隐藏）
@@ -101,7 +102,33 @@ assistant: A2
 ...
 ```
 
-`AiMessage.isVisible` 只决定本地 UI 是否渲染，不影响发送给模型的上下文。后续追问始终发送完整 history，不再只拼“原文 + 上一轮结果 + 当前问题”。
+`AiMessage.isVisible` 只决定本地 UI 是否渲染。`AiAgentSession.messages` 始终保留当前 Session 的完整 history，因此 UI、Retry、Regenerate 都不会因为 request window 而丢本地消息。
+
+真正发送给 DeepSeek 前，`AiAgentSession(service:historyWindow:)` 会通过 `AiHistoryWindow` 生成一个 request snapshot。默认策略为：
+
+```text
+本地完整 history
+  ↓
+AiHistoryWindow.standard
+  ↓
+48,000 content characters 的 app-level soft budget
+  ↓
+DeepSeekService.stream(...)
+```
+
+这里刻意使用“字符预算”，不是伪装成精确 tokenizer token 数。
+
+窗口规则：
+
+- hidden system 永远保留；
+- 初始 hidden user/tool prompt + 原文永远保留；
+- 当前最新 dependency unit 永远保留；
+- pending follow-up 会与它直接依赖的上一轮 exchange 一起保留，例如 `Q1 → A1 → Q2` 不可拆开；
+- 更早的 user/assistant exchange 从新到旧按完整 unit 加入；
+- 一旦下一个更旧 unit 超过 soft budget 就停止，不跳过中间 turn 去捡更老消息；
+- 不截断单条 message；如果 anchors 或最新 dependency unit 自身已经超过预算，允许软超限，而不是静默截断原文或当前问题。
+
+因此模型看到的是“原始任务上下文 + 连续的最近依赖上下文”，而本地用户仍能看到完整历史。
 
 原文仍由结果面板的原文区域独立展示，因此模型能看到原文，但 UI 不会制造一个巨大的初始 user bubble。
 
@@ -249,7 +276,7 @@ Regenerate 始终保持事务式：
              └── 模型请求：... Q1
 ```
 
-成功后原位替换 A1；失败则保留 A1 + error；Retry 继续使用同一个 pre-regenerate snapshot。
+成功后原位替换 A1；失败则保留 A1 + error；Retry 继续使用同一个 pre-regenerate snapshot。真正进入 transport 时仍会应用同一个 `AiHistoryWindow`，所以同一 retry snapshot 的窗口塑形是确定性的。
 
 ## Error / stale request rollback
 
@@ -272,7 +299,7 @@ ResultPanelView
 └── AiChatInputBar
 ```
 
-Conversation 使用：
+默认跟尾流程：
 
 ```text
 ScrollViewReader
@@ -284,9 +311,27 @@ message / streamed content / error / loading 状态变化
 scrollTo(tail, anchor: .bottom)
 ```
 
-因此每次经过节流后的 draft 发布都会跟到最新内容。
+但 `ResultPanelView` 现在同时维护轻量 `ChatFollowTailState`：
 
-当前版本采用“始终跟尾”策略；用户主动向上滚动后自动解除 follow-tail 属于后续增强，不在本阶段引入额外滚动状态机。
+```text
+默认 / 新请求开始
+  ↓
+isFollowingTail = true
+
+用户在结果区滚轮 / 触控板滚动 / 拖动交互
+  ↓
+isFollowingTail = false
+  ↓
+后续 streaming publish 不再 scrollTo
+  ↓
+显示「回到最新」
+
+点击「回到最新」
+  ↓
+恢复跟尾并立即到底部
+```
+
+程序化 `scrollTo` 不会触发 AppKit 用户事件 monitor，因此不会把自己误判成“用户手动滚动”。follow-tail 状态只属于 View 层，不进入 `AiAgentSession`。
 
 ## NSPanel 生命周期
 
@@ -320,20 +365,34 @@ Keychain 没有 Key + legacy 有有效 Key
 尝试写入 Keychain
   ├─ 成功 → 删除 legacy 明文
   └─ 失败 → 暂时保留 legacy，避免升级后静默丢失唯一凭证
+
+Keychain read 失败
+  ↓
+legacy 只允许本次 fallback read
+  ↓
+禁止把 legacy 反向写回未知状态的 Keychain
 ```
 
-Keychain 读取失败时同样不会主动删除 legacy fallback，迁移可在后续启动重试。
+用户主动编辑使用事务式提交，不直接绑定运行时 credential：
 
-但“用户主动编辑/清空”和“升级迁移”语义不同：一旦用户主动修改 API Key，旧 legacy UserDefaults 会立即删除，即使新的 Keychain 操作失败，也不能让旧 Key 在下次启动时回弹。保存失败会通过 `apiKeyStorageError` 在菜单栏设置中明确提示用户重试。
+```text
+UI local draft
+  ↓ 点击保存
+格式校验（空值 = clear；非空必须符合 sk- 规则）
+  ↓
+Keychain save / delete
+  ├─ 成功 → commit AppState.apiKey
+  └─ 失败 → runtime 继续保持上一个成功值 + UI 显示错误
+```
 
-用户主动清空时也会先删除 legacy 明文，再删除 Keychain item；如果 Keychain 删除失败，UI 会提示错误，而不会静默声称已持久化成功。
+因此保存失败不会出现 `runtime = new / Keychain = old`，清空失败也不会出现 `runtime = empty / Keychain = old`。用户主动编辑时 legacy plaintext 会退休，不允许旧 UserDefaults Key 在重启后回弹。
 
 ## DeepSeek API
 
 - 端点：`https://api.deepseek.com/chat/completions`
 - 模型：`deepseek-v4-flash` / `deepseek-v4-pro`
 - timeout：45s
-- 输入：`[AiMessage]`
+- 输入：经过 `AiHistoryWindow` 塑形后的 `[AiMessage]`
 - 主输出：`AsyncThrowingStream<String, Error>`
 - SSE 正常结束：必须收到 `[DONE]`
 - `[DONE]` 前 EOF：`incompleteStream`，不得提交 partial history
@@ -344,15 +403,19 @@ Keychain 读取失败时同样不会主动删除 legacy fallback，迁移可在�
 
 - `AppState` 只负责应用级编排，不要把 AI history 放回 AppState
 - API Key 主存储必须保持在 Keychain；不要重新把新 Key 写入 UserDefaults
-- legacy `deepseek_api_key` 仅允许用于升级迁移 fallback
-- `PanelSessionViewModel` 不持有 HTTP Task / generation / conversation history
-- `AiAgentSession` 是 AI 会话状态唯一写入点
-- `DeepSeekService` 不重新加入 prompt 或 retry 业务逻辑
+- legacy `deepseek_api_key` 仅允许用于升级迁移 fallback；Keychain read failure 时禁止 legacy write-back
+- API Key 编辑必须保持 local draft → persistence success → runtime commit 的事务顺序
+- `PanelSessionViewModel` 不持有 HTTP Task / generation / conversation history，也不负责 history window
+- `AiAgentSession` 是 AI 会话状态唯一写入点，并负责生产 service 请求的 history window
+- `AiHistoryWindow` 只裁 request snapshot，不得删除或改写 `AiAgentSession.messages`
+- request window 必须保留 hidden anchors 和最新 dependency unit；不要把当前 follow-up 与直接依赖的上一轮回答拆开
+- `DeepSeekService` 不重新加入 prompt、history window 或 retry 业务逻辑
 - Streaming chunk 可以高频到达，但 UI draft 发布必须继续节流
 - active streaming assistant 用轻量 Text；完成后再恢复 Markdown/code highlighting
 - partial 可见不等于 request completed；后续发送必须检查 `isLoading`
 - Chat Completions stream 只有收到 `[DONE]` 才能 commit assistant
 - Regenerate 必须保持事务式
+- follow-tail 是 View 层交互状态；用户手动查看旧内容后不得被 streaming 强制拉回底部
 - 不要在 SwiftUI View 中直接操作 NSPanel
 - 新增 Sources 文件必须同步加入 `hax_pick.xcodeproj` Sources build phase
 - `ClipboardSelectionService.simulateCommandC()` 使用 `.cghidEventTap`，不要随意更改
