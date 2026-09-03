@@ -2,6 +2,8 @@ import SwiftUI
 
 struct MenuBarContentView: View {
     @ObservedObject var appState: AppState
+    @State private var apiKeyVisible = false
+    @State private var apiKeyDraft = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -23,6 +25,9 @@ struct MenuBarContentView: View {
         .frame(width: 340)
         .background(AppTheme.background)
         .environment(\.colorScheme, .light)
+        .onAppear {
+            apiKeyDraft = appState.apiKey
+        }
     }
 
     private var header: some View {
@@ -86,17 +91,15 @@ struct MenuBarContentView: View {
         }
     }
 
-    @State private var apiKeyVisible = false
-
     private var apiKeySection: some View {
         cardSection(title: "API Key") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 0) {
                     Group {
                         if apiKeyVisible {
-                            TextField("输入 DeepSeek API Key", text: $appState.apiKey)
+                            TextField("输入 DeepSeek API Key", text: $apiKeyDraft)
                         } else {
-                            SecureField("输入 DeepSeek API Key", text: $appState.apiKey)
+                            SecureField("输入 DeepSeek API Key", text: $apiKeyDraft)
                         }
                     }
                     .textFieldStyle(.plain)
@@ -123,14 +126,29 @@ struct MenuBarContentView: View {
                         .stroke(AppTheme.border, lineWidth: 1)
                 )
 
-                if let apiKeyStorageError = appState.apiKeyStorageError {
-                    Text(apiKeyStorageError)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.orange)
-                } else {
-                    Text("Key 保存在 macOS Keychain，可随时修改。")
-                        .font(.system(size: 10))
-                        .foregroundColor(AppTheme.textSecondary)
+                HStack(spacing: 8) {
+                    if let apiKeyStorageError = appState.apiKeyStorageError {
+                        Text(apiKeyStorageError)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text("Key 保存在 macOS Keychain，修改后点击保存。")
+                            .font(.system(size: 10))
+                            .foregroundColor(AppTheme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Button("保存") {
+                        if appState.saveAPIKey(apiKeyDraft) {
+                            apiKeyDraft = appState.apiKey
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(
+                        apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines) == appState.apiKey &&
+                        appState.apiKeyStorageError == nil
+                    )
                 }
             }
         }
