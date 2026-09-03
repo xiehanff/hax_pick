@@ -21,10 +21,7 @@ final class PanelSessionViewModel: ObservableObject {
     private var isDismissed = false
 
     init(service: DeepSeekService, onClose: @escaping () -> Void) {
-        let historyWindow = AiHistoryWindow.standard
-        self.aiSession = AiAgentSession(stream: { messages in
-            service.stream(messages: historyWindow.requestMessages(from: messages))
-        })
+        self.aiSession = AiAgentSession(service: service)
         self.onClose = onClose
         observeAgentSession()
     }
