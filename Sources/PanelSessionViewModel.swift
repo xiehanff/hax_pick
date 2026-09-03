@@ -52,8 +52,16 @@ final class PanelSessionViewModel: ObservableObject {
         aiSession.errorMessage
     }
 
+    var didStop: Bool {
+        aiSession.didStop
+    }
+
     var canRetry: Bool {
         aiSession.canRetry
+    }
+
+    var canStop: Bool {
+        aiSession.canStop
     }
 
     var titleText: String {
@@ -63,6 +71,9 @@ final class PanelSessionViewModel: ObservableObject {
     var statusHint: String {
         if isLoading {
             return "正在生成..."
+        }
+        if didStop {
+            return "已停止，可继续使用当前结果"
         }
         if errorMessage != nil {
             return "请求失败，可重试"
@@ -80,7 +91,7 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     var suggestions: [String] {
-        guard lastAssistantContent != nil else { return [] }
+        guard !isLoading, lastAssistantContent != nil else { return [] }
         return currentAction?.suggestions ?? []
     }
 
@@ -110,6 +121,11 @@ final class PanelSessionViewModel: ObservableObject {
     func retry() {
         guard !isDismissed else { return }
         aiSession.retry()
+    }
+
+    func stopGeneration() {
+        guard !isDismissed else { return }
+        aiSession.stopGeneration()
     }
 
     func submitFollowUp() {
