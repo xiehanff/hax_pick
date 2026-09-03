@@ -107,18 +107,7 @@ final class AppState: ObservableObject {
     private static let legacyAPIKeyStorageKey = "deepseek_api_key"
     private static let modelStorageKey = "deepseek_model"
 
-    @Published var apiKey: String {
-        didSet {
-            let success = Self.persistAPIKey(
-                apiKey,
-                store: apiKeyStore,
-                legacyDefaults: defaults
-            )
-            apiKeyStorageError = success
-                ? nil
-                : "API Key 未能保存到 macOS Keychain，请重试。"
-        }
-    }
+    @Published private(set) var apiKey: String
 
     @Published var selectedModel: DeepSeekService.Model {
         didSet {
@@ -208,6 +197,25 @@ final class AppState: ObservableObject {
         DeepSeekService.Model.allCases
     }
 
+    @discardableResult
+    func saveAPIKey(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let success = Self.persistAPIKey(
+            trimmed,
+            store: apiKeyStore,
+            legacyDefaults: defaults
+        )
+
+        guard success else {
+            apiKeyStorageError = "API Key 未能保存到 macOS Keychain，请重试。"
+            return false
+        }
+
+        apiKey = trimmed
+        apiKeyStorageError = nil
+        return true
+    }
+
     static func normalizedAPIKey(from storedValue: String?) -> String {
         let trimmed = storedValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard trimmed.hasPrefix("sk-") else {
@@ -239,8 +247,13 @@ final class AppState: ObservableObject {
                 try? store.delete()
             }
         } catch {
-            // A Keychain read error must not delete the legacy fallback. Migration
-            // can retry on the next launch instead of losing the only persisted key.
+            // A Keychain read error makes the authoritative credential unknown.
+            // The legacy value may be used for this launch, but must not be written
+            // back into Keychain because doing so could overwrite a newer key that
+            // merely failed to read transiently.
+            return normalizedAPIKey(
+                from: legacyDefaults.string(forKey: legacyAPIKeyStorageKey)
+            )
         }
 
         let legacyValue = legacyDefaults.string(forKey: legacyAPIKeyStorageKey)
@@ -266,8 +279,8 @@ final class AppState: ObservableObject {
         store: any APIKeyStoring,
         legacyDefaults: UserDefaults
     ) -> Bool {
-        // Once the user explicitly edits or clears the key, the legacy plaintext
-        // must never remain as a stale fallback that can reappear on the next launch.
+        // Explicit user changes retire the legacy plaintext immediately. The
+        // runtime value is committed separately only after this operation succeeds.
         legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
 
         guard let persistedAPIKey = persistableAPIKey(from: value) else {
