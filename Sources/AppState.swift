@@ -367,13 +367,10 @@ final class AppState: ObservableObject {
             return false
         }
 
-        // Explicit user changes retire the legacy plaintext immediately. The
-        // runtime value is committed separately only after this operation succeeds.
-        legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-
         guard let persistedAPIKey = persistableAPIKey(from: trimmed) else {
             do {
                 try store.delete()
+                legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
                 return true
             } catch {
                 return false
@@ -382,6 +379,7 @@ final class AppState: ObservableObject {
 
         do {
             try store.save(persistedAPIKey)
+            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
             return true
         } catch {
             return false
