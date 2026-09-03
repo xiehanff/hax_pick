@@ -12,7 +12,7 @@ final class AiAgentSession: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var didStop = false
 
-    private(set) var draftPublishCount = 0
+    private(set) var draftRevision = 0
 
     private enum RetryPlan {
         case currentContext
@@ -36,9 +36,11 @@ final class AiAgentSession: ObservableObject {
     private let publishIntervalNanoseconds: UInt64
     private var generation = 0
     private var currentTask: Task<Void, Never>?
+    private var pendingDraftPublishTask: Task<Void, Never>?
     private var retryPlan: RetryPlan?
     private var activeRequest: ActiveRequest?
     private var activeDraftContent = ""
+    private var lastDraftPublishNanoseconds: UInt64?
 
     init(service: DeepSeekService) {
         self.stream = { messages in
@@ -115,6 +117,7 @@ final class AiAgentSession: ObservableObject {
         generation += 1
         currentTask?.cancel()
         currentTask = nil
+        cancelPendingDraftPublish()
         isLoading = false
         errorMessage = nil
         didStop = true
@@ -134,6 +137,7 @@ final class AiAgentSession: ObservableObject {
 
         self.activeRequest = nil
         activeDraftContent = ""
+        lastDraftPublishNanoseconds = nil
     }
 
     func runToolAction(_ action: AiToolAction, sourceText: String) {
@@ -264,7 +268,8 @@ final class AiAgentSession: ObservableObject {
         )
         activeRequest = request
         activeDraftContent = ""
-        draftPublishCount = 0
+        lastDraftPublishNanoseconds = nil
+        cancelPendingDraftPublish()
         isLoading = true
         errorMessage = nil
         didStop = false
@@ -273,7 +278,6 @@ final class AiAgentSession: ObservableObject {
         currentTask = Task { [weak self] in
             guard let self else { return }
             var accumulated = ""
-            var lastPublish = DispatchTime.now().uptimeNanoseconds
 
             do {
                 for try await chunk in performer(requestMessages) {
@@ -283,17 +287,7 @@ final class AiAgentSession: ObservableObject {
 
                     accumulated += chunk
                     self.activeDraftContent = accumulated
-
-                    let now = DispatchTime.now().uptimeNanoseconds
-                    if self.publishIntervalNanoseconds == 0 ||
-                        now &- lastPublish >= self.publishIntervalNanoseconds {
-                        self.publishDraft(
-                            assistantID: draftAssistantID,
-                            content: accumulated,
-                            originalAssistant: originalAssistant
-                        )
-                        lastPublish = now
-                    }
+                    self.queueDraftPublish(for: requestGeneration)
                 }
 
                 guard !Task.isCancelled,
@@ -306,24 +300,20 @@ final class AiAgentSession: ObservableObject {
                     throw DeepSeekError.emptyResult
                 }
 
+                self.cancelPendingDraftPublish()
                 self.publishDraft(
                     assistantID: draftAssistantID,
                     content: finalContent,
                     originalAssistant: originalAssistant
                 )
-                self.isLoading = false
-                self.currentTask = nil
-                self.errorMessage = nil
-                self.didStop = false
-                self.retryPlan = nil
-                self.activeRequest = nil
-                self.activeDraftContent = ""
+                self.finishRequestSuccessfully()
             } catch {
                 guard !Task.isCancelled,
                       self.generation == requestGeneration else {
                     return
                 }
 
+                self.cancelPendingDraftPublish()
                 self.rollback(request)
                 self.isLoading = false
                 self.currentTask = nil
@@ -332,7 +322,68 @@ final class AiAgentSession: ObservableObject {
                 self.retryPlan = failurePlan
                 self.activeRequest = nil
                 self.activeDraftContent = ""
+                self.lastDraftPublishNanoseconds = nil
             }
+        }
+    }
+
+    private func queueDraftPublish(for requestGeneration: Int) {
+        guard let activeRequest else { return }
+
+        let now = DispatchTime.now().uptimeNanoseconds
+        if publishIntervalNanoseconds == 0 || lastDraftPublishNanoseconds == nil {
+            cancelPendingDraftPublish()
+            publishDraft(
+                assistantID: activeRequest.draftAssistantID,
+                content: activeDraftContent,
+                originalAssistant: activeRequest.originalAssistant
+            )
+            lastDraftPublishNanoseconds = now
+            return
+        }
+
+        guard pendingDraftPublishTask == nil,
+              let lastDraftPublishNanoseconds else {
+            return
+        }
+
+        let elapsed = now &- lastDraftPublishNanoseconds
+        if elapsed >= publishIntervalNanoseconds {
+            publishDraft(
+                assistantID: activeRequest.draftAssistantID,
+                content: activeDraftContent,
+                originalAssistant: activeRequest.originalAssistant
+            )
+            self.lastDraftPublishNanoseconds = now
+            return
+        }
+
+        let delay = publishIntervalNanoseconds - elapsed
+        let draftAssistantID = activeRequest.draftAssistantID
+        let originalAssistant = activeRequest.originalAssistant
+
+        pendingDraftPublishTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled,
+                  let self,
+                  self.generation == requestGeneration,
+                  self.isLoading,
+                  self.activeRequest?.draftAssistantID == draftAssistantID else {
+                return
+            }
+
+            self.pendingDraftPublishTask = nil
+            self.publishDraft(
+                assistantID: draftAssistantID,
+                content: self.activeDraftContent,
+                originalAssistant: originalAssistant
+            )
+            self.lastDraftPublishNanoseconds = DispatchTime.now().uptimeNanoseconds
         }
     }
 
@@ -341,8 +392,6 @@ final class AiAgentSession: ObservableObject {
         content: String,
         originalAssistant: AiMessage?
     ) {
-        draftPublishCount += 1
-
         let updated = AiMessage(
             id: assistantID,
             role: .assistant,
@@ -350,10 +399,24 @@ final class AiAgentSession: ObservableObject {
         )
 
         if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+            guard messages[index].content != content else { return }
             messages[index] = updated
+            draftRevision += 1
         } else if originalAssistant == nil {
             messages.append(updated)
+            draftRevision += 1
         }
+    }
+
+    private func finishRequestSuccessfully() {
+        isLoading = false
+        currentTask = nil
+        errorMessage = nil
+        didStop = false
+        retryPlan = nil
+        activeRequest = nil
+        activeDraftContent = ""
+        lastDraftPublishNanoseconds = nil
     }
 
     private func rollback(_ request: ActiveRequest) {
@@ -376,6 +439,7 @@ final class AiAgentSession: ObservableObject {
         generation += 1
         currentTask?.cancel()
         currentTask = nil
+        cancelPendingDraftPublish()
 
         if shouldRollback, let activeRequest {
             rollback(activeRequest)
@@ -384,8 +448,14 @@ final class AiAgentSession: ObservableObject {
         isLoading = false
         activeRequest = nil
         activeDraftContent = ""
+        lastDraftPublishNanoseconds = nil
         if !preserveRetryPlan {
             retryPlan = nil
         }
+    }
+
+    private func cancelPendingDraftPublish() {
+        pendingDraftPublishTask?.cancel()
+        pendingDraftPublishTask = nil
     }
 }
