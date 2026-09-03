@@ -35,7 +35,12 @@ final class AiAgentSession: ObservableObject {
     }
 
     var lastAssistantContent: String? {
-        messages.reversed().first(where: { $0.role == .assistant && $0.isVisible })?.content
+        guard let lastMessage = messages.last,
+              lastMessage.role == .assistant,
+              lastMessage.isVisible else {
+            return nil
+        }
+        return lastMessage.content
     }
 
     var canRetry: Bool {
