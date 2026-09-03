@@ -42,6 +42,7 @@ final class PanelSessionViewModel: ObservableObject {
     var canRetry: Bool { aiSession.canRetry }
     var canStop: Bool { aiSession.canStop }
     var draftRevision: Int { aiSession.draftRevision }
+    var requestRevision: Int { aiSession.requestRevision }
 
     var titleText: String {
         currentAction?.resultTitle ?? "划词助手"
