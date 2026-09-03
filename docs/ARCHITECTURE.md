@@ -131,6 +131,16 @@ AsyncThrowingStream<String, Error>
 
 网络层只负责 transport / SSE / HTTP error mapping，不直接更新 SwiftUI 状态。
 
+DeepSeek 在长时间等待期间可能发送 SSE keep-alive comment（例如 `: keep-alive`）或空行；这些行必须忽略，不能当 JSON payload 解析。
+
+正常的 Chat Completions 流必须显式收到：
+
+```text
+data: [DONE]
+```
+
+才能被视为完整成功。即使此前已经收到可展示的 `content`，如果 HTTP body 在 `[DONE]` 之前直接 EOF，也必须按 `incompleteStream` 失败处理，让 `AiAgentSession` 走 rollback / Retry；不能把被截断的 partial assistant 当成完整历史提交。
+
 `complete(messages:)` 仍保留为聚合 helper：内部消费相同 stream，最终返回完整字符串，主要用于兼容测试和非流式调用点。
 
 ## Streaming draft 与 UI 节流
@@ -228,6 +238,8 @@ Regenerate 始终保持事务式：
 
 错误通过独立 `errorMessage` 展示，不写入 assistant history。
 
+Streaming 请求即使已经展示过 partial，只要 transport 最终失败（包括 `[DONE]` 前提前 EOF），仍会 rollback 当前 draft；follow-up 场景同时 rollback pending user，并保留 Retry plan。这样半截回答不会进入后续模型 history。
+
 `AiAgentSession` 使用 `generation + Task.cancel()` 双保险。`clear()`、dismiss、开始新 tool action 都会使旧请求 generation 失效，因此底层网络即使晚到，也不能写入新 Session。
 
 ## Chat UI 与 follow-tail
@@ -276,7 +288,9 @@ scrollTo(tail, anchor: .bottom)
 - timeout：45s
 - 输入：`[AiMessage]`
 - 主输出：`AsyncThrowingStream<String, Error>`
-- SSE 结束：`[DONE]`
+- SSE 正常结束：必须收到 `[DONE]`
+- `[DONE]` 前 EOF：`incompleteStream`，不得提交 partial history
+- SSE keep-alive comment / 空行：忽略
 - 非 2xx：优先解析 JSON `error.message`，失败则回退 HTTP body
 
 ## 开发注意事项
@@ -287,6 +301,7 @@ scrollTo(tail, anchor: .bottom)
 - `DeepSeekService` 不重新加入 prompt 或 retry 业务逻辑
 - Streaming chunk 可以高频到达，但 UI draft 发布必须继续节流
 - partial 可见不等于 request completed；后续发送必须检查 `isLoading`
+- Chat Completions stream 只有收到 `[DONE]` 才能 commit assistant
 - Regenerate 必须保持事务式
 - 不要在 SwiftUI View 中直接操作 NSPanel
 - 新增 Sources 文件必须同步加入 `hax_pick.xcodeproj` Sources build phase
