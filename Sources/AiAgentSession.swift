@@ -48,12 +48,10 @@ final class AiAgentSession: ObservableObject {
         currentAction = nil
         errorMessage = nil
         retryPlan = nil
-        isLoading = false
     }
 
     func cancel() {
         invalidateCurrentRequest()
-        isLoading = false
     }
 
     func runToolAction(_ action: AiToolAction, sourceText: String) {
@@ -82,7 +80,10 @@ final class AiAgentSession: ObservableObject {
     @discardableResult
     func sendMessage(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, currentAction != nil, !isLoading else {
+        guard !trimmed.isEmpty,
+              currentAction != nil,
+              lastAssistantContent != nil,
+              !isLoading else {
             return false
         }
 
@@ -179,5 +180,6 @@ final class AiAgentSession: ObservableObject {
         generation += 1
         currentTask?.cancel()
         currentTask = nil
+        isLoading = false
     }
 }
