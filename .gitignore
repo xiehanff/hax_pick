@@ -1,0 +1,7 @@
+build/
+.build/
+xcuserdata/
+.codegraph/
+.DS_Store
+/AGENTS.md
+/CLAUDE.md
