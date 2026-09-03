@@ -34,7 +34,7 @@ struct FloatingToolbarView: View {
         HStack(spacing: 4) {
             dragHandleView
 
-            ForEach(DeepSeekService.ToolAction.primaryActions) { action in
+            ForEach(AiToolAction.primaryActions) { action in
                 Button {
                     viewModel.handlePrimaryAction(action)
                 } label: {
@@ -161,20 +161,23 @@ struct FloatingToolbarView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(viewModel.conversationTurns) { turn in
-                        if let question = turn.question {
-                            userBubble(question)
-                        }
-                        aiBubble(turn.answer)
+                    ForEach(viewModel.conversationMessages) { message in
+                        messageBubble(message)
                     }
 
-                    if viewModel.isLoading && viewModel.conversationTurns.isEmpty {
+                    if let errorMessage = viewModel.errorMessage {
+                        errorBubble(errorMessage)
+                    }
+
+                    if viewModel.isLoading {
                         Text("正在生成...")
                             .font(.system(size: 14))
                             .foregroundColor(AppTheme.textSecondary)
                     }
 
-                    if !viewModel.isLoading && viewModel.conversationTurns.isEmpty {
+                    if !viewModel.isLoading &&
+                        viewModel.conversationMessages.isEmpty &&
+                        viewModel.errorMessage == nil {
                         Text("选择一个动作后，结果会出现在这里。")
                             .font(.system(size: 14))
                             .foregroundColor(AppTheme.textSecondary)
@@ -191,6 +194,18 @@ struct FloatingToolbarView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(AppTheme.border, lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private func messageBubble(_ message: AiMessage) -> some View {
+        switch message.role {
+        case .user:
+            userBubble(message.content)
+        case .assistant:
+            aiBubble(message.content)
+        case .system:
+            EmptyView()
+        }
     }
 
     private func userBubble(_ text: String) -> some View {
@@ -210,7 +225,7 @@ struct FloatingToolbarView: View {
         HStack(alignment: .top, spacing: 8) {
             AppBrandIcon(size: 20)
                 .opacity(0.7)
-            
+
             MarkdownWithCodeBlocks(text: text)
                 .padding(12)
                 .background(AppTheme.mutedBg)
@@ -219,17 +234,33 @@ struct FloatingToolbarView: View {
         }
     }
 
+    private func errorBubble(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("请求失败")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(AppTheme.textPrimary)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundColor(AppTheme.textSecondary)
+                .textSelection(.enabled)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.mutedBg)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
     // MARK: 底部操作栏
 
     private var actionButtonsRow: some View {
         HStack(spacing: 8) {
             Button("重新生成") { viewModel.retry() }
                 .buttonStyle(SecondaryButtonStyle())
-                .disabled(viewModel.isLoading || viewModel.currentAction == nil)
+                .disabled(!viewModel.canRetry)
 
             Button("复制结果") { viewModel.copyResult() }
                 .buttonStyle(SecondaryButtonStyle())
-                .disabled(viewModel.conversationTurns.isEmpty)
+                .disabled(viewModel.lastAssistantContent == nil)
 
             Spacer()
 
