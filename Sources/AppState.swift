@@ -200,6 +200,11 @@ final class AppState: ObservableObject {
     @discardableResult
     func saveAPIKey(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && Self.normalizedAPIKey(from: trimmed).isEmpty {
+            apiKeyStorageError = "API Key 格式无效，应以 sk- 开头。"
+            return false
+        }
+
         let success = Self.persistAPIKey(
             trimmed,
             store: apiKeyStore,
@@ -279,11 +284,16 @@ final class AppState: ObservableObject {
         store: any APIKeyStoring,
         legacyDefaults: UserDefaults
     ) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty || !normalizedAPIKey(from: trimmed).isEmpty else {
+            return false
+        }
+
         // Explicit user changes retire the legacy plaintext immediately. The
         // runtime value is committed separately only after this operation succeeds.
         legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
 
-        guard let persistedAPIKey = persistableAPIKey(from: value) else {
+        guard let persistedAPIKey = persistableAPIKey(from: trimmed) else {
             do {
                 try store.delete()
                 return true
