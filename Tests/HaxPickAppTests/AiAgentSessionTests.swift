@@ -65,6 +65,39 @@ final class AiAgentSessionTests: XCTestCase {
         try await waitForCompletedAssistant(session, content: "AB")
     }
 
+    func testStreamingFailureAfterPartialRollsBackDraftAndAllowsRetry() async throws {
+        let responder = DeferredStreamResponder()
+        let session = AiAgentSession(stream: { responder.stream($0) }, publishIntervalNanoseconds: 0)
+
+        session.runToolAction(.explain, sourceText: "source")
+        try await waitUntil { responder.hasPendingStream }
+        responder.yield("A0")
+        responder.finish()
+        try await waitForCompletedAssistant(session, content: "A0")
+
+        XCTAssertTrue(session.sendMessage("Q1"))
+        try await waitUntil { responder.hasPendingStream }
+        responder.yield("partial-A1")
+        try await waitUntil { session.lastAssistantContent == "partial-A1" }
+        responder.fail(StubError(message: "stream interrupted"))
+        try await waitUntil { session.errorMessage != nil && !session.isLoading }
+
+        XCTAssertEqual(session.visibleMessages.map(\.content), ["A0"])
+        XCTAssertEqual(session.lastAssistantContent, "A0")
+        XCTAssertTrue(session.canRetry)
+        XCTAssertFalse(session.messages.contains(where: { $0.content == "partial-A1" }))
+        XCTAssertFalse(session.messages.contains(where: { $0.content == "Q1" }))
+
+        session.retry()
+        try await waitUntil { responder.hasPendingStream }
+        XCTAssertEqual(responder.requests.last?.last?.content, "Q1")
+        responder.yield("A1")
+        responder.finish()
+        try await waitForCompletedAssistant(session, content: "A1")
+
+        XCTAssertEqual(session.visibleMessages.map(\.content), ["A0", "Q1", "A1"])
+    }
+
     func testStopGenerationKeepsPublishedPartialResponse() async throws {
         let responder = DeferredStreamResponder()
         let session = AiAgentSession(stream: { responder.stream($0) }, publishIntervalNanoseconds: 0)
@@ -276,6 +309,7 @@ private final class DeferredStreamResponder {
     }
     func yield(_ chunk: String) { continuation?.yield(chunk) }
     func finish() { continuation?.finish(); continuation = nil }
+    func fail(_ error: Error) { continuation?.finish(throwing: error); continuation = nil }
 }
 
 @MainActor
