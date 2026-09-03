@@ -140,6 +140,46 @@ final class AiAgentSessionTests: XCTestCase {
         XCTAssertEqual(responder.requests[2].last?.content, "Q1")
     }
 
+    func testFailedRegenerationRequiresRetryBeforeAnotherFollowUp() async throws {
+        let responder = ScriptedResponder(outcomes: [
+            .success("initial"),
+            .success("first answer"),
+            .failure("regenerate failed"),
+            .success("regenerated answer"),
+        ])
+        let session = makeSession(responder: responder)
+
+        session.runToolAction(.explain, sourceText: "source")
+        try await waitUntil { session.visibleMessages.count == 1 }
+
+        XCTAssertTrue(session.sendMessage("Q1"))
+        try await waitUntil { session.visibleMessages.count == 3 }
+
+        session.retry()
+        try await waitUntil { session.errorMessage != nil && !session.isLoading }
+
+        XCTAssertEqual(session.visibleMessages.map(\.content), ["initial", "Q1"])
+        XCTAssertNil(session.lastAssistantContent)
+        XCTAssertFalse(session.sendMessage("Q2"))
+        XCTAssertEqual(session.messages.last?.role, .user)
+        XCTAssertEqual(responder.requests.count, 3)
+
+        session.retry()
+        try await waitUntil {
+            session.visibleMessages.last?.content == "regenerated answer"
+        }
+
+        XCTAssertEqual(
+            session.visibleMessages.map(\.content),
+            ["initial", "Q1", "regenerated answer"]
+        )
+        XCTAssertEqual(responder.requests.count, 4)
+        XCTAssertEqual(
+            responder.requests[2].map(\.content),
+            responder.requests[3].map(\.content)
+        )
+    }
+
     func testClearPreventsLateResultFromEnteringNewSession() async throws {
         let responder = DeferredResponder()
         let session = AiAgentSession { messages in
