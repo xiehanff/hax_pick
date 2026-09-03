@@ -47,6 +47,42 @@ final class CredentialHealthRecoveryTests: XCTestCase {
         XCTAssertEqual(appState.apiKeyStorageState, .keychain)
         XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
     }
+
+    func testUndecodableKeychainItemIsDeletedBeforeLegacyMigration() {
+        let storage = TestCredentialDefaults()
+        defer { storage.clear() }
+        storage.defaults.set("sk-legacy", forKey: "deepseek_api_key")
+        let store = UndecodableStore()
+
+        let result = AppState.loadInitialCredential(
+            store: store,
+            legacyDefaults: storage.defaults
+        )
+
+        XCTAssertEqual(store.deleteCount, 1)
+        XCTAssertEqual(store.savedValues, ["sk-legacy"])
+        XCTAssertEqual(result.value, "sk-legacy")
+        XCTAssertEqual(result.storageState, .keychain)
+        XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
+    }
+
+    func testUndecodableKeychainItemDeleteFailureStaysUnavailableAndDoesNotWriteLegacy() {
+        let storage = TestCredentialDefaults()
+        defer { storage.clear() }
+        storage.defaults.set("sk-legacy", forKey: "deepseek_api_key")
+        let store = UndecodableStore(deleteError: StubCredentialError.failed)
+
+        let result = AppState.loadInitialCredential(
+            store: store,
+            legacyDefaults: storage.defaults
+        )
+
+        XCTAssertEqual(store.deleteCount, 1)
+        XCTAssertTrue(store.savedValues.isEmpty)
+        XCTAssertEqual(result.value, "sk-legacy")
+        XCTAssertEqual(result.storageState, .keychainUnavailable)
+        XCTAssertEqual(storage.defaults.string(forKey: "deepseek_api_key"), "sk-legacy")
+    }
 }
 
 private struct TestCredentialDefaults {
@@ -92,5 +128,35 @@ private final class CleanupFailureStore: APIKeyStoring {
             throw deleteError
         }
         value = nil
+    }
+}
+
+private final class UndecodableStore: APIKeyStoring {
+    var deleteError: Error?
+    private(set) var savedValues: [String] = []
+    private(set) var deleteCount = 0
+    private var hasBadItem = true
+
+    init(deleteError: Error? = nil) {
+        self.deleteError = deleteError
+    }
+
+    func load() throws -> String? {
+        if hasBadItem {
+            throw APIKeyStoreError.invalidStoredValue
+        }
+        return nil
+    }
+
+    func save(_ value: String) throws {
+        savedValues.append(value)
+    }
+
+    func delete() throws {
+        deleteCount += 1
+        if let deleteError {
+            throw deleteError
+        }
+        hasBadItem = false
     }
 }
