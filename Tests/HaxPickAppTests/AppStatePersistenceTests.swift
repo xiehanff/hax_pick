@@ -154,7 +154,7 @@ final class AppStatePersistenceTests: XCTestCase {
         XCTAssertEqual(storage.defaults.string(forKey: "deepseek_api_key"), "sk-legacy")
     }
 
-    func testPersistAPIKeyTrimsBeforeSavingAndRemovesLegacyPlaintext() {
+    func testPersistAPIKeyTrimsBeforeSavingAndRemovesLegacyPlaintextAfterSuccess() {
         let storage = makeDefaults()
         defer { storage.clear() }
         storage.defaults.set("sk-old", forKey: "deepseek_api_key")
@@ -172,7 +172,7 @@ final class AppStatePersistenceTests: XCTestCase {
         XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
     }
 
-    func testFailedExplicitSaveRemovesLegacyButLeavesExistingKeychainValueUntouched() {
+    func testFailedExplicitSavePreservesLastCommittedLegacyAndKeychainValues() {
         let storage = makeDefaults()
         defer { storage.clear() }
         storage.defaults.set("sk-legacy", forKey: "deepseek_api_key")
@@ -188,11 +188,11 @@ final class AppStatePersistenceTests: XCTestCase {
         )
 
         XCTAssertFalse(success)
-        XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
+        XCTAssertEqual(storage.defaults.string(forKey: "deepseek_api_key"), "sk-legacy")
         XCTAssertEqual(store.value, "sk-current")
     }
 
-    func testFailedExplicitClearRemovesLegacyButLeavesExistingKeychainValueUntouched() {
+    func testFailedExplicitClearPreservesLastCommittedLegacyAndKeychainValues() {
         let storage = makeDefaults()
         defer { storage.clear() }
         storage.defaults.set("sk-legacy", forKey: "deepseek_api_key")
@@ -208,9 +208,30 @@ final class AppStatePersistenceTests: XCTestCase {
         )
 
         XCTAssertFalse(success)
-        XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
+        XCTAssertEqual(storage.defaults.string(forKey: "deepseek_api_key"), "sk-legacy")
         XCTAssertEqual(store.value, "sk-current")
         XCTAssertEqual(store.deleteCount, 1)
+    }
+
+    func testPendingMigrationFailedExplicitSaveKeepsFallbackAndPendingStateRetryable() {
+        let storage = makeDefaults()
+        defer { storage.clear() }
+        storage.defaults.set("sk-legacy", forKey: "deepseek_api_key")
+        let store = MockAPIKeyStore(saveError: StubStoreError.failed)
+        let appState = AppState(apiKeyStore: store, defaults: storage.defaults)
+
+        XCTAssertEqual(appState.apiKeyStorageState, .legacyMigrationPending)
+        XCTAssertFalse(appState.saveAPIKey("sk-new"))
+
+        XCTAssertEqual(appState.apiKey, "sk-legacy")
+        XCTAssertEqual(appState.apiKeyStorageState, .legacyMigrationPending)
+        XCTAssertEqual(storage.defaults.string(forKey: "deepseek_api_key"), "sk-legacy")
+
+        store.saveError = nil
+        XCTAssertTrue(appState.retryAPIKeyStorage())
+        XCTAssertEqual(appState.apiKey, "sk-legacy")
+        XCTAssertEqual(appState.apiKeyStorageState, .keychain)
+        XCTAssertEqual(store.value, "sk-legacy")
     }
 
     func testAppStateRejectsInvalidKeyWithoutTouchingCommittedValue() {
