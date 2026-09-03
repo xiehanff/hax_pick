@@ -3,37 +3,73 @@ import Foundation
 
 @MainActor
 final class AiAgentSession: ObservableObject {
+    typealias Stream = ([AiMessage]) -> AsyncThrowingStream<String, Error>
     typealias Complete = ([AiMessage]) async throws -> String
 
     @Published private(set) var messages: [AiMessage] = []
     @Published private(set) var currentAction: AiToolAction?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var didStop = false
 
     private enum RetryPlan {
         case currentContext
         case appendUser(String)
-        case regenerate(requestMessages: [AiMessage], replacingAssistantID: UUID)
+        case regenerate(requestMessages: [AiMessage], replacingAssistant: AiMessage)
     }
 
     private enum SuccessCommit {
         case appendAssistant
-        case replaceAssistant(UUID)
+        case replaceAssistant(AiMessage)
     }
 
-    private let complete: Complete
+    private struct ActiveRequest {
+        let draftAssistantID: UUID
+        let rollbackUserID: UUID?
+        let failurePlan: RetryPlan
+        let originalAssistant: AiMessage?
+    }
+
+    private let stream: Stream
+    private let publishIntervalNanoseconds: UInt64
     private var generation = 0
     private var currentTask: Task<Void, Never>?
     private var retryPlan: RetryPlan?
+    private var activeRequest: ActiveRequest?
+    private var activeDraftContent = ""
 
     init(service: DeepSeekService) {
-        self.complete = { messages in
-            try await service.complete(messages: messages)
+        self.stream = { messages in
+            service.stream(messages: messages)
         }
+        self.publishIntervalNanoseconds = 40_000_000
+    }
+
+    init(
+        stream: @escaping Stream,
+        publishIntervalNanoseconds: UInt64 = 40_000_000
+    ) {
+        self.stream = stream
+        self.publishIntervalNanoseconds = publishIntervalNanoseconds
     }
 
     init(complete: @escaping Complete) {
-        self.complete = complete
+        self.stream = { messages in
+            AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        continuation.yield(try await complete(messages))
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { _ in
+                    task.cancel()
+                }
+            }
+        }
+        self.publishIntervalNanoseconds = 0
     }
 
     var visibleMessages: [AiMessage] {
@@ -43,34 +79,68 @@ final class AiAgentSession: ObservableObject {
     var lastAssistantContent: String? {
         guard let lastMessage = messages.last,
               lastMessage.role == .assistant,
-              lastMessage.isVisible else {
+              lastMessage.isVisible,
+              !lastMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
         return lastMessage.content
     }
 
     var canRetry: Bool {
-        !isLoading && currentAction != nil && (errorMessage != nil || lastAssistantContent != nil)
+        !isLoading && currentAction != nil && (retryPlan != nil || lastAssistantContent != nil)
+    }
+
+    var canStop: Bool {
+        isLoading && activeRequest != nil
     }
 
     func clear() {
-        invalidateCurrentRequest()
+        abortActiveRequest(rollback: true, preserveRetryPlan: false)
         messages = []
         currentAction = nil
         errorMessage = nil
+        didStop = false
         retryPlan = nil
     }
 
     func cancel() {
-        invalidateCurrentRequest()
+        abortActiveRequest(rollback: true, preserveRetryPlan: false)
+    }
+
+    func stopGeneration() {
+        guard isLoading, let activeRequest else { return }
+
+        generation += 1
+        currentTask?.cancel()
+        currentTask = nil
+        isLoading = false
+        errorMessage = nil
+        didStop = true
+
+        let partial = activeDraftContent
+        if partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            rollback(activeRequest)
+            retryPlan = activeRequest.failurePlan
+        } else {
+            publishDraft(
+                assistantID: activeRequest.draftAssistantID,
+                content: partial,
+                originalAssistant: activeRequest.originalAssistant
+            )
+            retryPlan = nil
+        }
+
+        self.activeRequest = nil
+        activeDraftContent = ""
     }
 
     func runToolAction(_ action: AiToolAction, sourceText: String) {
         guard action != .copy else { return }
 
-        invalidateCurrentRequest()
+        abortActiveRequest(rollback: true, preserveRetryPlan: false)
         currentAction = action
         errorMessage = nil
+        didStop = false
         retryPlan = nil
         messages = [
             AiMessage(
@@ -121,16 +191,16 @@ final class AiAgentSession: ObservableObject {
                     rollbackUserID: userMessage.id,
                     failurePlan: .appendUser(text)
                 )
-            case .regenerate(let requestMessages, let replacingAssistantID):
+            case .regenerate(let requestMessages, let replacingAssistant):
                 let plan = RetryPlan.regenerate(
                     requestMessages: requestMessages,
-                    replacingAssistantID: replacingAssistantID
+                    replacingAssistant: replacingAssistant
                 )
                 startRequest(
                     requestMessages: requestMessages,
                     rollbackUserID: nil,
                     failurePlan: plan,
-                    successCommit: .replaceAssistant(replacingAssistantID)
+                    successCommit: .replaceAssistant(replacingAssistant)
                 )
             }
             return
@@ -149,13 +219,13 @@ final class AiAgentSession: ObservableObject {
         let requestMessages = Array(messages.dropLast())
         let plan = RetryPlan.regenerate(
             requestMessages: requestMessages,
-            replacingAssistantID: lastMessage.id
+            replacingAssistant: lastMessage
         )
         startRequest(
             requestMessages: requestMessages,
             rollbackUserID: nil,
             failurePlan: plan,
-            successCommit: .replaceAssistant(lastMessage.id)
+            successCommit: .replaceAssistant(lastMessage)
         )
     }
 
@@ -169,65 +239,148 @@ final class AiAgentSession: ObservableObject {
 
         let requestGeneration = generation
         let requestMessages = explicitRequestMessages ?? messages
-        let performer = complete
+        let performer = stream
+        let draftAssistantID: UUID
+        let originalAssistant: AiMessage?
 
+        switch successCommit {
+        case .appendAssistant:
+            let draft = AiMessage(role: .assistant, content: "")
+            draftAssistantID = draft.id
+            originalAssistant = nil
+            messages.append(draft)
+        case .replaceAssistant(let assistant):
+            draftAssistantID = assistant.id
+            originalAssistant = assistant
+        }
+
+        let request = ActiveRequest(
+            draftAssistantID: draftAssistantID,
+            rollbackUserID: rollbackUserID,
+            failurePlan: failurePlan,
+            originalAssistant: originalAssistant
+        )
+        activeRequest = request
+        activeDraftContent = ""
         isLoading = true
         errorMessage = nil
+        didStop = false
         retryPlan = nil
 
         currentTask = Task { [weak self] in
-            do {
-                let output = try await performer(requestMessages)
-                guard !Task.isCancelled,
-                      let self,
-                      self.generation == requestGeneration else {
-                    return
-                }
+            guard let self else { return }
+            var accumulated = ""
+            var lastPublish = DispatchTime.now().uptimeNanoseconds
 
-                switch successCommit {
-                case .appendAssistant:
-                    self.messages.append(
-                        AiMessage(role: .assistant, content: output)
-                    )
-                case .replaceAssistant(let assistantID):
-                    let replacement = AiMessage(
-                        id: assistantID,
-                        role: .assistant,
-                        content: output
-                    )
-                    if let index = self.messages.firstIndex(where: { $0.id == assistantID }) {
-                        self.messages[index] = replacement
-                    } else {
-                        self.messages.append(replacement)
+            do {
+                for try await chunk in performer(requestMessages) {
+                    guard !Task.isCancelled, self.generation == requestGeneration else {
+                        return
+                    }
+
+                    accumulated += chunk
+                    self.activeDraftContent = accumulated
+
+                    let now = DispatchTime.now().uptimeNanoseconds
+                    if self.publishIntervalNanoseconds == 0 ||
+                        now &- lastPublish >= self.publishIntervalNanoseconds {
+                        self.publishDraft(
+                            assistantID: draftAssistantID,
+                            content: accumulated,
+                            originalAssistant: originalAssistant
+                        )
+                        lastPublish = now
                     }
                 }
 
-                self.isLoading = false
-                self.currentTask = nil
-                self.errorMessage = nil
-                self.retryPlan = nil
-            } catch {
                 guard !Task.isCancelled,
-                      let self,
                       self.generation == requestGeneration else {
                     return
                 }
 
-                if let rollbackUserID {
-                    self.messages.removeAll(where: { $0.id == rollbackUserID })
+                let finalContent = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !finalContent.isEmpty else {
+                    throw DeepSeekError.emptyResult
                 }
+
+                self.publishDraft(
+                    assistantID: draftAssistantID,
+                    content: finalContent,
+                    originalAssistant: originalAssistant
+                )
+                self.isLoading = false
+                self.currentTask = nil
+                self.errorMessage = nil
+                self.didStop = false
+                self.retryPlan = nil
+                self.activeRequest = nil
+                self.activeDraftContent = ""
+            } catch {
+                guard !Task.isCancelled,
+                      self.generation == requestGeneration else {
+                    return
+                }
+
+                self.rollback(request)
                 self.isLoading = false
                 self.currentTask = nil
                 self.errorMessage = error.localizedDescription
+                self.didStop = false
                 self.retryPlan = failurePlan
+                self.activeRequest = nil
+                self.activeDraftContent = ""
             }
         }
     }
 
-    private func invalidateCurrentRequest() {
+    private func publishDraft(
+        assistantID: UUID,
+        content: String,
+        originalAssistant: AiMessage?
+    ) {
+        let updated = AiMessage(
+            id: assistantID,
+            role: .assistant,
+            content: content
+        )
+
+        if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+            messages[index] = updated
+        } else if originalAssistant == nil {
+            messages.append(updated)
+        }
+    }
+
+    private func rollback(_ request: ActiveRequest) {
+        if let originalAssistant = request.originalAssistant,
+           let index = messages.firstIndex(where: { $0.id == originalAssistant.id }) {
+            messages[index] = originalAssistant
+        } else {
+            messages.removeAll(where: { $0.id == request.draftAssistantID })
+        }
+
+        if let rollbackUserID = request.rollbackUserID {
+            messages.removeAll(where: { $0.id == rollbackUserID })
+        }
+    }
+
+    private func abortActiveRequest(
+        rollback shouldRollback: Bool,
+        preserveRetryPlan: Bool
+    ) {
         generation += 1
         currentTask?.cancel()
         currentTask = nil
+
+        if shouldRollback, let activeRequest {
+            rollback(activeRequest)
+        }
+
         isLoading = false
+        activeRequest = nil
+        activeDraftContent = ""
+        if !preserveRetryPlan {
+            retryPlan = nil
+        }
     }
 }
