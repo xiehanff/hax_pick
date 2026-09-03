@@ -13,16 +13,16 @@ final class AiAgentSessionTests: XCTestCase {
         let session = makeSession(responder: responder)
 
         session.runToolAction(.explain, sourceText: "source")
-        try await waitUntil { session.visibleMessages.count == 1 }
+        try await waitUntil { session.lastAssistantContent == "A0" }
 
         XCTAssertTrue(session.sendMessage("Q1"))
-        try await waitUntil { session.visibleMessages.count == 3 }
+        try await waitUntil { session.lastAssistantContent == "A1" }
 
         XCTAssertTrue(session.sendMessage("Q2"))
-        try await waitUntil { session.visibleMessages.count == 5 }
+        try await waitUntil { session.lastAssistantContent == "A2" }
 
         XCTAssertTrue(session.sendMessage("Q3"))
-        try await waitUntil { session.visibleMessages.count == 7 }
+        try await waitUntil { session.lastAssistantContent == "A3" }
 
         XCTAssertEqual(responder.requests.count, 4)
         XCTAssertEqual(
@@ -51,6 +51,72 @@ final class AiAgentSessionTests: XCTestCase {
         )
     }
 
+    func testStreamingChunksAreCoalescedUntilFinalFlushWhenThrottleWindowHasNotElapsed() async throws {
+        let responder = DeferredStreamResponder()
+        let session = AiAgentSession(
+            stream: { messages in responder.stream(messages) },
+            publishIntervalNanoseconds: .max
+        )
+
+        session.runToolAction(.translate, sourceText: "hello")
+        try await waitUntil { responder.hasPendingStream }
+
+        responder.yield("你")
+        responder.yield("好")
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertTrue(session.isLoading)
+        XCTAssertEqual(session.visibleMessages.count, 1)
+        XCTAssertEqual(session.visibleMessages.first?.content, "")
+
+        responder.finish()
+        try await waitUntil { !session.isLoading }
+
+        XCTAssertEqual(session.lastAssistantContent, "你好")
+        XCTAssertEqual(session.visibleMessages.map(\.content), ["你好"])
+    }
+
+    func testStopGenerationKeepsPublishedPartialResponse() async throws {
+        let responder = DeferredStreamResponder()
+        let session = AiAgentSession(
+            stream: { messages in responder.stream(messages) },
+            publishIntervalNanoseconds: 0
+        )
+
+        session.runToolAction(.summarize, sourceText: "source")
+        try await waitUntil { responder.hasPendingStream }
+
+        responder.yield("partial")
+        try await waitUntil { session.lastAssistantContent == "partial" }
+
+        session.stopGeneration()
+
+        XCTAssertFalse(session.isLoading)
+        XCTAssertTrue(session.didStop)
+        XCTAssertEqual(session.lastAssistantContent, "partial")
+        XCTAssertTrue(session.canRetry)
+    }
+
+    func testStopBeforeFirstChunkRollsBackDraftAndAllowsRetry() async throws {
+        let responder = DeferredStreamResponder()
+        let session = AiAgentSession(
+            stream: { messages in responder.stream(messages) },
+            publishIntervalNanoseconds: 0
+        )
+
+        session.runToolAction(.explain, sourceText: "source")
+        try await waitUntil { responder.hasPendingStream }
+
+        session.stopGeneration()
+
+        XCTAssertFalse(session.isLoading)
+        XCTAssertTrue(session.didStop)
+        XCTAssertTrue(session.visibleMessages.isEmpty)
+        XCTAssertTrue(session.canRetry)
+        XCTAssertNil(session.lastAssistantContent)
+    }
+
     func testInitialFailureRequiresRetryBeforeFollowUp() async throws {
         let responder = ScriptedResponder(outcomes: [
             .failure("temporary failure"),
@@ -67,7 +133,7 @@ final class AiAgentSessionTests: XCTestCase {
         XCTAssertEqual(responder.requests.count, 1)
 
         session.retry()
-        try await waitUntil { session.visibleMessages.count == 1 }
+        try await waitUntil { session.lastAssistantContent == "recovered" }
 
         XCTAssertEqual(session.visibleMessages.map(\.content), ["recovered"])
         XCTAssertNil(session.errorMessage)
@@ -87,7 +153,7 @@ final class AiAgentSessionTests: XCTestCase {
         let session = makeSession(responder: responder)
 
         session.runToolAction(.translate, sourceText: "hello")
-        try await waitUntil { session.visibleMessages.count == 1 }
+        try await waitUntil { session.lastAssistantContent == "initial" }
 
         XCTAssertTrue(session.sendMessage("why"))
         try await waitUntil { session.errorMessage != nil && !session.isLoading }
@@ -97,7 +163,7 @@ final class AiAgentSessionTests: XCTestCase {
         XCTAssertFalse(session.messages.contains(where: { $0.content == "network down" }))
 
         session.retry()
-        try await waitUntil { session.visibleMessages.count == 3 }
+        try await waitUntil { session.lastAssistantContent == "retry answer" }
 
         XCTAssertNil(session.errorMessage)
         XCTAssertEqual(
@@ -119,10 +185,10 @@ final class AiAgentSessionTests: XCTestCase {
         let session = makeSession(responder: responder)
 
         session.runToolAction(.explain, sourceText: "source")
-        try await waitUntil { session.visibleMessages.count == 1 }
+        try await waitUntil { session.lastAssistantContent == "initial" }
 
         XCTAssertTrue(session.sendMessage("Q1"))
-        try await waitUntil { session.visibleMessages.count == 3 }
+        try await waitUntil { session.lastAssistantContent == "first answer" }
 
         session.retry()
         try await waitUntil {
@@ -151,10 +217,10 @@ final class AiAgentSessionTests: XCTestCase {
         let session = makeSession(responder: responder)
 
         session.runToolAction(.explain, sourceText: "source")
-        try await waitUntil { session.visibleMessages.count == 1 }
+        try await waitUntil { session.lastAssistantContent == "initial" }
 
         XCTAssertTrue(session.sendMessage("Q1"))
-        try await waitUntil { session.visibleMessages.count == 3 }
+        try await waitUntil { session.lastAssistantContent == "first answer" }
 
         session.retry()
         try await waitUntil { session.errorMessage != nil && !session.isLoading }
@@ -186,9 +252,9 @@ final class AiAgentSessionTests: XCTestCase {
 
     func testClearPreventsLateResultFromEnteringNewSession() async throws {
         let responder = DeferredResponder()
-        let session = AiAgentSession { messages in
+        let session = AiAgentSession(complete: { messages in
             try await responder.complete(messages)
-        }
+        })
 
         session.runToolAction(.summarize, sourceText: "old")
         try await waitUntil { responder.pendingCount == 1 }
@@ -199,20 +265,20 @@ final class AiAgentSessionTests: XCTestCase {
         session.runToolAction(.summarize, sourceText: "new")
         try await waitUntil { responder.pendingCount == 1 }
         responder.succeed("new-result")
-        try await waitUntil { session.visibleMessages.count == 1 }
+        try await waitUntil { session.lastAssistantContent == "new-result" }
 
         XCTAssertEqual(session.visibleMessages.map(\.content), ["new-result"])
         XCTAssertFalse(session.messages.contains(where: { $0.content == "old-result" }))
     }
 
     private func makeSession(responder: ScriptedResponder) -> AiAgentSession {
-        AiAgentSession { messages in
+        AiAgentSession(complete: { messages in
             try await responder.complete(messages)
-        }
+        })
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<200 {
+        for _ in 0..<400 {
             if condition() {
                 return
             }
@@ -253,6 +319,31 @@ private final class ScriptedResponder {
         case .failure(let message):
             throw StubError(message: message)
         }
+    }
+}
+
+private final class DeferredStreamResponder {
+    private(set) var requests: [[AiMessage]] = []
+    private var continuation: AsyncThrowingStream<String, Error>.Continuation?
+
+    var hasPendingStream: Bool {
+        continuation != nil
+    }
+
+    func stream(_ messages: [AiMessage]) -> AsyncThrowingStream<String, Error> {
+        requests.append(messages)
+        return AsyncThrowingStream { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func yield(_ chunk: String) {
+        continuation?.yield(chunk)
+    }
+
+    func finish() {
+        continuation?.finish()
+        continuation = nil
     }
 }
 
