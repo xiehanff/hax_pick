@@ -90,6 +90,14 @@ final class AiAgentSession: ObservableObject {
         return lastMessage.content
     }
 
+    var streamingAssistantID: UUID? {
+        guard isLoading,
+              !activeDraftContent.isEmpty else {
+            return nil
+        }
+        return activeRequest?.draftAssistantID
+    }
+
     var canRetry: Bool {
         !isLoading && currentAction != nil && (retryPlan != nil || lastAssistantContent != nil)
     }
