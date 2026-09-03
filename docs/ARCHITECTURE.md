@@ -29,6 +29,7 @@ Xcode 工程无独立测试 target，单元测试由 SPM `HaxPickAppTests` 承�
 HaxPickApp
   └── AppDelegate
        └── AppState（应用生命周期 / 顶层编排）
+            ├── KeychainAPIKeyStore（DeepSeek API Key）
             ├── SelectionMonitor
             │    ├── AccessibilityTextService
             │    └── ClipboardSelectionService
@@ -51,7 +52,8 @@ HaxPickApp
 
 职责边界：
 
-- `AppState`：权限、设置、SelectionMonitor、Panel Controller、DeepSeekService 实例编排
+- `AppState`：权限、设置、Keychain credential 编排、SelectionMonitor、Panel Controller、DeepSeekService 实例编排
+- `KeychainAPIKeyStore`：DeepSeek API Key 的 Generic Password 读写，不负责 UI 或迁移策略
 - `ToolbarPanelController`：NSPanel 创建、定位、聚焦、dismiss
 - `PanelSessionViewModel`：toolbar/result 模式、选中文本、输入框、原文展开状态，以及对 `AiAgentSession` 的 UI 投影
 - `AiAgentSession`：AI history、streaming draft、generation、cancel、stop、retry、rollback
@@ -143,7 +145,7 @@ data: [DONE]
 
 `complete(messages:)` 仍保留为聚合 helper：内部消费相同 stream，最终返回完整字符串，主要用于兼容测试和非流式调用点。
 
-## Streaming draft 与 UI 节流
+## Streaming draft、UI 节流与渲染阶段
 
 `AiAgentSession` 消费所有网络 chunk，但不会每收到一个 token 就触发 `@Published messages` 更新。
 
@@ -161,11 +163,26 @@ SSE chunk
 内存中的完整 draft
   ↓ 约每 40ms 发布一次
 AiMessage.content
-  ↓
-SwiftUI / MarkdownWithCodeBlocks
 ```
 
-因此 Stop 能拿到最新已经接收的文本，而 Markdown/SwiftUI 不需要按 token 频率重新布局。
+Streaming 阶段和已完成阶段采用不同渲染策略：
+
+```text
+正在 streaming
+  ↓
+轻量 Text
+  ↓ 不运行完整 Markdown / 正则拆段 / 代码高亮
+
+收到 [DONE] / Stop 接受 partial
+  ↓
+streamingAssistantID 清除
+  ↓
+MarkdownWithCodeBlocks
+```
+
+`AiAgentSession.streamingAssistantID` 只有在当前请求已经真正收到 partial content 时才有值。因此 regenerate 刚开始、尚未收到新 chunk 时，旧 assistant 仍保持已提交 Markdown；不会因为单纯 `isLoading == true` 就发生视觉降级。
+
+这样 40ms draft publish 不再重复执行整套 Markdown 与代码高亮解析，同时完整结果仍保留原有格式化能力。
 
 请求结束时无论是否刚好命中节流窗口，都会执行最终 flush。
 
@@ -193,7 +210,7 @@ isLoading = false
 didStop = true
 ```
 
-这条 partial 作为用户主动接受的当前结果保留，可以复制、继续追问，也可以通过“重新生成”再次生成。
+这条 partial 作为用户主动接受的当前结果保留，可以复制、继续追问，也可以通过“重新生成”再次生成。Stop 后它不再属于 active streaming draft，因此恢复 Markdown 渲染。
 
 ### 首 chunk 前停止
 
@@ -277,9 +294,39 @@ scrollTo(tail, anchor: .bottom)
 
 `prepareForDismissal()` 是幂等的，并调用 `AiAgentSession.cancel()`。关闭面板时当前 streaming draft 会按取消语义 rollback，不会在隐藏 Session 中继续写入。
 
-## API Key
+## API Key / Keychain
 
-当前仍使用 `UserDefaults`（key: `deepseek_api_key`）。空值会删除持久化记录。Keychain 迁移属于后续工程质量阶段。
+DeepSeek API Key 的主持久化存储已经迁移到 macOS Keychain，使用 Generic Password item：
+
+```text
+service: com.hax.haxpick.deepseek-api-key
+account: deepseek-api-key
+accessible: when unlocked, this device only
+```
+
+新的 API Key 不再写入 UserDefaults。
+
+为了兼容升级前版本，`deepseek_api_key` UserDefaults 只作为一次性 legacy migration 来源：
+
+```text
+启动
+  ↓
+Keychain 有有效 Key
+  ├─ 使用 Keychain
+  └─ 删除 legacy UserDefaults 明文
+
+Keychain 没有 Key + legacy 有有效 Key
+  ↓
+尝试写入 Keychain
+  ├─ 成功 → 删除 legacy 明文
+  └─ 失败 → 暂时保留 legacy，避免升级后静默丢失唯一凭证
+```
+
+Keychain 读取失败时同样不会主动删除 legacy fallback，迁移可在后续启动重试。
+
+但“用户主动编辑/清空”和“升级迁移”语义不同：一旦用户主动修改 API Key，旧 legacy UserDefaults 会立即删除，即使新的 Keychain 操作失败，也不能让旧 Key 在下次启动时回弹。保存失败会通过 `apiKeyStorageError` 在菜单栏设置中明确提示用户重试。
+
+用户主动清空时也会先删除 legacy 明文，再删除 Keychain item；如果 Keychain 删除失败，UI 会提示错误，而不会静默声称已持久化成功。
 
 ## DeepSeek API
 
@@ -296,10 +343,13 @@ scrollTo(tail, anchor: .bottom)
 ## 开发注意事项
 
 - `AppState` 只负责应用级编排，不要把 AI history 放回 AppState
+- API Key 主存储必须保持在 Keychain；不要重新把新 Key 写入 UserDefaults
+- legacy `deepseek_api_key` 仅允许用于升级迁移 fallback
 - `PanelSessionViewModel` 不持有 HTTP Task / generation / conversation history
 - `AiAgentSession` 是 AI 会话状态唯一写入点
 - `DeepSeekService` 不重新加入 prompt 或 retry 业务逻辑
 - Streaming chunk 可以高频到达，但 UI draft 发布必须继续节流
+- active streaming assistant 用轻量 Text；完成后再恢复 Markdown/code highlighting
 - partial 可见不等于 request completed；后续发送必须检查 `isLoading`
 - Chat Completions stream 只有收到 `[DONE]` 才能 commit assistant
 - Regenerate 必须保持事务式
