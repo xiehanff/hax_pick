@@ -13,22 +13,19 @@ final class AiAgentSessionTests: XCTestCase {
         let session = makeSession(responder: responder)
 
         session.runToolAction(.explain, sourceText: "source")
-        try await waitUntil { session.lastAssistantContent == "A0" }
+        try await waitForCompletedAssistant(session, content: "A0")
 
         XCTAssertTrue(session.sendMessage("Q1"))
-        try await waitUntil { session.lastAssistantContent == "A1" }
+        try await waitForCompletedAssistant(session, content: "A1")
 
         XCTAssertTrue(session.sendMessage("Q2"))
-        try await waitUntil { session.lastAssistantContent == "A2" }
+        try await waitForCompletedAssistant(session, content: "A2")
 
         XCTAssertTrue(session.sendMessage("Q3"))
-        try await waitUntil { session.lastAssistantContent == "A3" }
+        try await waitForCompletedAssistant(session, content: "A3")
 
         XCTAssertEqual(responder.requests.count, 4)
-        XCTAssertEqual(
-            responder.requests[0].map(\.role),
-            [.system, .user]
-        )
+        XCTAssertEqual(responder.requests[0].map(\.role), [.system, .user])
         XCTAssertEqual(
             responder.requests[1].map(\.role),
             [.system, .user, .assistant, .user]
@@ -63,18 +60,12 @@ final class AiAgentSessionTests: XCTestCase {
 
         responder.yield("你")
         responder.yield("好")
-        await Task.yield()
-        await Task.yield()
-
-        XCTAssertTrue(session.isLoading)
-        XCTAssertEqual(session.visibleMessages.count, 1)
-        XCTAssertEqual(session.visibleMessages.first?.content, "")
-
         responder.finish()
-        try await waitUntil { !session.isLoading }
 
-        XCTAssertEqual(session.lastAssistantContent, "你好")
+        try await waitForCompletedAssistant(session, content: "你好")
+
         XCTAssertEqual(session.visibleMessages.map(\.content), ["你好"])
+        XCTAssertEqual(session.draftPublishCount, 1)
     }
 
     func testStopGenerationKeepsPublishedPartialResponse() async throws {
@@ -133,7 +124,7 @@ final class AiAgentSessionTests: XCTestCase {
         XCTAssertEqual(responder.requests.count, 1)
 
         session.retry()
-        try await waitUntil { session.lastAssistantContent == "recovered" }
+        try await waitForCompletedAssistant(session, content: "recovered")
 
         XCTAssertEqual(session.visibleMessages.map(\.content), ["recovered"])
         XCTAssertNil(session.errorMessage)
@@ -153,7 +144,7 @@ final class AiAgentSessionTests: XCTestCase {
         let session = makeSession(responder: responder)
 
         session.runToolAction(.translate, sourceText: "hello")
-        try await waitUntil { session.lastAssistantContent == "initial" }
+        try await waitForCompletedAssistant(session, content: "initial")
 
         XCTAssertTrue(session.sendMessage("why"))
         try await waitUntil { session.errorMessage != nil && !session.isLoading }
@@ -163,7 +154,7 @@ final class AiAgentSessionTests: XCTestCase {
         XCTAssertFalse(session.messages.contains(where: { $0.content == "network down" }))
 
         session.retry()
-        try await waitUntil { session.lastAssistantContent == "retry answer" }
+        try await waitForCompletedAssistant(session, content: "retry answer")
 
         XCTAssertNil(session.errorMessage)
         XCTAssertEqual(
@@ -185,15 +176,13 @@ final class AiAgentSessionTests: XCTestCase {
         let session = makeSession(responder: responder)
 
         session.runToolAction(.explain, sourceText: "source")
-        try await waitUntil { session.lastAssistantContent == "initial" }
+        try await waitForCompletedAssistant(session, content: "initial")
 
         XCTAssertTrue(session.sendMessage("Q1"))
-        try await waitUntil { session.lastAssistantContent == "first answer" }
+        try await waitForCompletedAssistant(session, content: "first answer")
 
         session.retry()
-        try await waitUntil {
-            session.visibleMessages.last?.content == "regenerated answer"
-        }
+        try await waitForCompletedAssistant(session, content: "regenerated answer")
 
         XCTAssertEqual(
             session.visibleMessages.map(\.content),
@@ -217,10 +206,10 @@ final class AiAgentSessionTests: XCTestCase {
         let session = makeSession(responder: responder)
 
         session.runToolAction(.explain, sourceText: "source")
-        try await waitUntil { session.lastAssistantContent == "initial" }
+        try await waitForCompletedAssistant(session, content: "initial")
 
         XCTAssertTrue(session.sendMessage("Q1"))
-        try await waitUntil { session.lastAssistantContent == "first answer" }
+        try await waitForCompletedAssistant(session, content: "first answer")
 
         session.retry()
         try await waitUntil { session.errorMessage != nil && !session.isLoading }
@@ -235,9 +224,7 @@ final class AiAgentSessionTests: XCTestCase {
         XCTAssertFalse(responder.requests[2].contains(where: { $0.content == "first answer" }))
 
         session.retry()
-        try await waitUntil {
-            session.visibleMessages.last?.content == "regenerated answer"
-        }
+        try await waitForCompletedAssistant(session, content: "regenerated answer")
 
         XCTAssertEqual(
             session.visibleMessages.map(\.content),
@@ -265,7 +252,7 @@ final class AiAgentSessionTests: XCTestCase {
         session.runToolAction(.summarize, sourceText: "new")
         try await waitUntil { responder.pendingCount == 1 }
         responder.succeed("new-result")
-        try await waitUntil { session.lastAssistantContent == "new-result" }
+        try await waitForCompletedAssistant(session, content: "new-result")
 
         XCTAssertEqual(session.visibleMessages.map(\.content), ["new-result"])
         XCTAssertFalse(session.messages.contains(where: { $0.content == "old-result" }))
@@ -275,6 +262,15 @@ final class AiAgentSessionTests: XCTestCase {
         AiAgentSession(complete: { messages in
             try await responder.complete(messages)
         })
+    }
+
+    private func waitForCompletedAssistant(
+        _ session: AiAgentSession,
+        content: String
+    ) async throws {
+        try await waitUntil {
+            !session.isLoading && session.lastAssistantContent == content
+        }
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {
