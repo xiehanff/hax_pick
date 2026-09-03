@@ -29,6 +29,9 @@
 		D00200000000000000000001 /* AiToolAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00200000000000000000001 /* AiToolAction.swift */; };
 		D00300000000000000000001 /* AiPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00300000000000000000001 /* AiPrompts.swift */; };
 		D00400000000000000000001 /* AiAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00400000000000000000001 /* AiAgentSession.swift */; };
+		D00500000000000000000001 /* AiMessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00500000000000000000001 /* AiMessageBubble.swift */; };
+		D00600000000000000000001 /* AiChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00600000000000000000001 /* AiChatInputBar.swift */; };
+		D00700000000000000000001 /* ResultPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00700000000000000000001 /* ResultPanelView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -55,6 +58,9 @@
 		E00200000000000000000001 /* AiToolAction.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiToolAction.swift; path = Sources/AiToolAction.swift; sourceTree = "<group>"; };
 		E00300000000000000000001 /* AiPrompts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiPrompts.swift; path = Sources/AiPrompts.swift; sourceTree = "<group>"; };
 		E00400000000000000000001 /* AiAgentSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiAgentSession.swift; path = Sources/AiAgentSession.swift; sourceTree = "<group>"; };
+		E00500000000000000000001 /* AiMessageBubble.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiMessageBubble.swift; path = Sources/AiMessageBubble.swift; sourceTree = "<group>"; };
+		E00600000000000000000001 /* AiChatInputBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiChatInputBar.swift; path = Sources/AiChatInputBar.swift; sourceTree = "<group>"; };
+		E00700000000000000000001 /* ResultPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ResultPanelView.swift; path = Sources/ResultPanelView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -92,7 +98,9 @@
 				488C96139802ED625DDC07B4 /* AppState.swift */,
 				2B7E8E6F3A66451D9B5B3C00 /* AppBrandIcon.swift */,
 				E00400000000000000000001 /* AiAgentSession.swift */,
+				E00600000000000000000001 /* AiChatInputBar.swift */,
 				E00100000000000000000001 /* AiMessage.swift */,
+				E00500000000000000000001 /* AiMessageBubble.swift */,
 				E00300000000000000000001 /* AiPrompts.swift */,
 				E00200000000000000000001 /* AiToolAction.swift */,
 				CFE29E9AF6DE0BFBEC1D19C8 /* HaxPickApp.swift */,
@@ -101,6 +109,7 @@
 				9779A4F7D84B4E54B8B8BBE0 /* MenuBarContentView.swift */,
 				9779A4F7D84B4E54B8B8BBE2 /* PermissionGuideView.swift */,
 				9779A4F7D84B4E54B8B8BBE4 /* PermissionGuideWindowController.swift */,
+				E00700000000000000000001 /* ResultPanelView.swift */,
 				FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */,
 				BD6C65ED168E28DCDF7315E2 /* ToolbarPanelController.swift */,
 				A2F4D6A01B6B4C33A5F7D8E1 /* Theme.swift */,
@@ -223,7 +232,9 @@
 				1ADDDF52F474EEC3D875A8F5 /* AppState.swift in Sources */,
 				2B7E8E6F3A66451D9B5B3C01 /* AppBrandIcon.swift in Sources */,
 				D00400000000000000000001 /* AiAgentSession.swift in Sources */,
+				D00600000000000000000001 /* AiChatInputBar.swift in Sources */,
 				D00100000000000000000001 /* AiMessage.swift in Sources */,
+				D00500000000000000000001 /* AiMessageBubble.swift in Sources */,
 				D00300000000000000000001 /* AiPrompts.swift in Sources */,
 				D00200000000000000000001 /* AiToolAction.swift in Sources */,
 				3CDF54297A7BEDD0FE004128 /* HaxPickApp.swift in Sources */,
@@ -232,6 +243,7 @@
 				9779A4F7D84B4E54B8B8BBE1 /* MenuBarContentView.swift in Sources */,
 				9779A4F7D84B4E54B8B8BBE3 /* PermissionGuideView.swift in Sources */,
 				9779A4F7D84B4E54B8B8BBE5 /* PermissionGuideWindowController.swift in Sources */,
+				D00700000000000000000001 /* ResultPanelView.swift in Sources */,
 				ED30EBA5963281F2E4F8058A /* SelectionMonitor.swift in Sources */,
 				AEACF2F1990DE0E055F0B81A /* ToolbarPanelController.swift in Sources */,
 				A2F4D6A11B6B4C33A5F7D8E1 /* Theme.swift in Sources */,
