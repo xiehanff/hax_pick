@@ -74,11 +74,14 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     var canSubmitFollowUp: Bool {
-        !followUpInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isLoading
+        lastAssistantContent != nil &&
+            !followUpInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !isLoading
     }
 
     var suggestions: [String] {
-        currentAction?.suggestions ?? []
+        guard lastAssistantContent != nil else { return [] }
+        return currentAction?.suggestions ?? []
     }
 
     func reset(with text: String) {
