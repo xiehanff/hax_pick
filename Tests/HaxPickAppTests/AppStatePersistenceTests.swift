@@ -130,6 +130,21 @@ final class AppStatePersistenceTests: XCTestCase {
         XCTAssertEqual(store.deleteCount, 1)
     }
 
+    func testAppStateRejectsInvalidKeyWithoutTouchingCommittedValue() {
+        let storage = makeDefaults()
+        defer { storage.clear() }
+        let store = MockAPIKeyStore(value: "sk-current")
+        let appState = AppState(apiKeyStore: store, defaults: storage.defaults)
+
+        let success = appState.saveAPIKey("not-a-deepseek-key")
+
+        XCTAssertFalse(success)
+        XCTAssertEqual(appState.apiKey, "sk-current")
+        XCTAssertEqual(store.value, "sk-current")
+        XCTAssertTrue(store.savedValues.isEmpty)
+        XCTAssertTrue(appState.apiKeyStorageError?.contains("格式无效") == true)
+    }
+
     func testAppStateFailedSaveKeepsLastCommittedRuntimeValue() {
         let storage = makeDefaults()
         defer { storage.clear() }
