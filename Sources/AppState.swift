@@ -9,8 +9,7 @@ final class AppState: ObservableObject {
 
     @Published var apiKey: String {
         didSet {
-            guard let persistedAPIKey = Self.persistableAPIKey(from: apiKey) else { return }
-            UserDefaults.standard.set(persistedAPIKey, forKey: Self.apiKeyStorageKey)
+            Self.persistAPIKey(apiKey, defaults: .standard)
         }
     }
 
@@ -51,7 +50,7 @@ final class AppState: ObservableObject {
         let normalizedAPIKey = Self.normalizedAPIKey(from: storedAPIKey)
         self.apiKey = normalizedAPIKey
         if normalizedAPIKey != storedAPIKey?.trimmingCharacters(in: .whitespacesAndNewlines) {
-            UserDefaults.standard.set(normalizedAPIKey, forKey: Self.apiKeyStorageKey)
+            Self.persistAPIKey(normalizedAPIKey, defaults: .standard)
         }
         self.selectedModel = DeepSeekService.Model(rawValue: UserDefaults.standard.string(forKey: Self.modelStorageKey) ?? "") ?? .flash
         panelController.onDismissSelection = { [weak self] text in
@@ -104,6 +103,14 @@ final class AppState: ObservableObject {
     static func persistableAPIKey(from value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func persistAPIKey(_ value: String, defaults: UserDefaults) {
+        if let persistedAPIKey = persistableAPIKey(from: value) {
+            defaults.set(persistedAPIKey, forKey: apiKeyStorageKey)
+        } else {
+            defaults.removeObject(forKey: apiKeyStorageKey)
+        }
     }
 
     func openAccessibilitySettings() {
