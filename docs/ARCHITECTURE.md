@@ -74,9 +74,19 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 
 `PanelSessionViewModel.PanelMode`：
 - `.toolbar` — 紧凑工具栏 320×48pt，4 个平铺胶囊按钮（复制/翻译/解释/总结），左侧有九宫格拖动把手
-- `.result` — 结果面板 436×628pt，顶部标题 + 原文区(可展开) + 滚动对话区(280pt) + 操作栏 + 继续提问区
+- `.result` — 结果面板 440×628pt，顶部标题 + 原文区(可展开) + 滚动对话区(280pt) + 操作栏 + 继续提问区
+
+面板尺寸由 `FloatingPanelLayout` 统一提供，SwiftUI 根视图与 `ToolbarPanelController` 不再各自维护一套宽高常量。
 
 模式切换通过 `viewModel.mode` 驱动，`onModeChanged` 回调触发 `ToolbarPanelController` 调整 `NSPanel` 的 `contentSize` 和 `frameOrigin`。焦点策略也按模式分离：`.toolbar` 只 `orderFront`，不主动 `activate`，并且 `hidesOnDeactivate = false`，避免在 app 未激活时刚显示就被系统收起；`.result` 才 `activate + makeKeyAndOrderFront`，同时恢复 `hidesOnDeactivate = true` 以支持失焦关闭。
+
+### 面板请求生命周期
+
+`PanelSessionViewModel` 为当前 AI 请求维护 `requestGeneration` 与 `currentTask`：
+- 每次 `reset(with:)` 都会递增 generation、取消旧 Task，再开始新选区会话
+- `close()`、ESC、点击面板外部等所有 dismiss 路径最终都会调用 `prepareForDismissal()`，使当前请求失效
+- 请求完成时必须同时满足“Task 未取消 + generation 未变化 + 面板仍处于当前会话”才允许写入 `conversationTurns`
+- 即使底层异步实现没有及时响应 Task cancellation，generation 校验仍会阻止旧结果污染新划词会话
 
 ### 对话气泡与结果区
 
@@ -116,7 +126,7 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 
 ### API Key 存储
 
-使用 `UserDefaults`（key: `deepseek_api_key`）。无默认 Key，用户需在菜单栏面板中自行填写自己的 DeepSeek API Key。
+使用 `UserDefaults`（key: `deepseek_api_key`）。无默认 Key，用户需在菜单栏面板中自行填写自己的 DeepSeek API Key；当输入被清空时会同步删除持久化值，避免重启后旧 Key 回弹。
 
 ### DeepSeek API
 
@@ -133,6 +143,6 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 
 - 所有 `@MainActor` 标注是必须的 — `NSEvent` 全局监听回调和 `AXUIElement` 操作都必须在主线程
 - `AppState` 是 `@MainActor` 单例，`weak self` 捕获用于打破可能的循环引用（如 `DeepSeekService.apiKeyProvider`）
-- `ToolbarPanelController` 复用同一个 `PanelSessionViewModel` 实例，每次 `show()` 调用 `viewModel.reset()` 清空旧状态
+- `ToolbarPanelController` 复用同一个 `PanelSessionViewModel` 实例，每次 `show()` 调用 `viewModel.reset()` 清空旧状态并使旧请求失效
 - 不要在 `FloatingToolbarView` 中直接操作 `NSPanel` — 所有面板级别的操作通过 `PanelSessionViewModel.onModeChanged` 回调，由 `ToolbarPanelController` 处理
 - `ClipboardSelectionService` 的 `simulateCommandC()` 使用 CGEvent 的 `.cghidEventTap`，不要改用其他 tap 类型
