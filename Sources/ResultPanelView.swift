@@ -193,8 +193,8 @@ struct ResultPanelView: View {
         return ScrollSignal(
             messageCount: viewModel.conversationMessages.count,
             lastMessageID: lastMessage?.id,
-            lastContent: lastMessage?.content,
-            errorMessage: viewModel.errorMessage,
+            draftRevision: viewModel.draftRevision,
+            hasError: viewModel.errorMessage != nil,
             isLoading: viewModel.isLoading
         )
     }
@@ -203,7 +203,7 @@ struct ResultPanelView: View {
 private struct ScrollSignal: Equatable {
     let messageCount: Int
     let lastMessageID: UUID?
-    let lastContent: String?
-    let errorMessage: String?
+    let draftRevision: Int
+    let hasError: Bool
     let isLoading: Bool
 }
