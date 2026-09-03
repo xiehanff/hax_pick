@@ -49,7 +49,8 @@
 
 ### 文档
 
-- 新增 `docs/ARCHITECTURE.md`，承接 `CLAUDE.md`/`AGENTS.md` 中的架构、构建方式、关键机制、开发注意事项，并补充应用图标章节；`CLAUDE.md`/`AGENTS.md` 精简为本地 AI 编码助手指引并退出 git 托管（加入 `.gitignore`）。
+- 新增 `assets/app-icon.png`（1024×1024 高清产品图标，提取自 `AppIcon.icns`），供外界引用展示；README 顶部居中展示产品图标。
+- 新增 `assets/ARCHITECTURE.md`，承接 `CLAUDE.md`/`AGENTS.md` 中的架构、构建方式、关键机制、开发注意事项，并补充应用图标章节；`CLAUDE.md`/`AGENTS.md` 精简为本地 AI 编码助手指引并退出 git 托管（加入 `.gitignore`）。
 - 修正文档中 Xcode scheme 名为 `hax_pick`（原误写为 `HaxPick`）。
 - 更新 PRD 文档，与实际代码实现对齐（双通道划词读取、全部 7 个动作、面板精确规格、版本规划重排）
 - 更新 README，补充技术架构图、文件职责表、面板规格表、完整使用说明

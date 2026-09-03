@@ -112,6 +112,8 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 - `AppIcon.icns` — 产品图标，含 16~1024px 全尺寸族，由 Copy AppIcon 构建脚本拷贝到 `.app/Contents/Resources/`，`Info.plist` 的 `CFBundleIconFile` 引用
 - `MenuBarIcon.png`(32px) / `MenuBarIcon@2x.png`(64px) — 托盘图标，按 16×16pt 显示（2 倍超采样），`NSImage` 加载时自动配对 `@2x` 变体
 
+对外展示用高清图标为 `assets/app-icon.png`（1024×1024，提取自 `AppIcon.icns`），README 顶部即引用此图。
+
 ### API Key 存储
 
 使用 `UserDefaults`（key: `deepseek_api_key`）。无默认 Key，用户需在菜单栏面板中自行填写自己的 DeepSeek API Key。

@@ -1,4 +1,10 @@
+<div align="center">
+
+<img src="docs/app-icon.png" width="160" alt="HaxPick App Icon" />
+
 # HaxPick — macOS 划词助手
+
+</div>
 
 一个用 Swift 写的 macOS 划词效率工具：
 
