@@ -1,87 +1,100 @@
+import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
 final class PanelSessionViewModel: ObservableObject {
-    typealias PerformAction = (
-        DeepSeekService.ToolAction,
-        String,
-        String?,
-        String?
-    ) async throws -> String
-
     enum PanelMode {
         case toolbar
         case result
     }
 
-    struct ConversationTurn: Identifiable {
-        let id = UUID()
-        let question: String?   // nil = 首次操作无用户气泡
-        let answer: String
-    }
-
     @Published private(set) var mode: PanelMode = .toolbar
     @Published private(set) var selectedText = ""
-    @Published private(set) var currentAction: DeepSeekService.ToolAction?
-    @Published private(set) var conversationTurns: [ConversationTurn] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var statusHint = "请选择动作"
     @Published var followUpInput = ""
     @Published var isOriginalExpanded = false
     var onModeChanged: ((PanelMode) -> Void)?
 
-    private let performAction: PerformAction
+    private let aiSession: AiAgentSession
     private let onClose: () -> Void
-    private var requestGeneration = 0
-    private var currentTask: Task<Void, Never>?
+    private var agentObservation: AnyCancellable?
     private var isDismissed = false
 
     init(service: DeepSeekService, onClose: @escaping () -> Void) {
-        self.performAction = { action, text, previousResult, followUp in
-            try await service.perform(
-                action: action,
-                text: text,
-                previousResult: previousResult,
-                followUp: followUp
-            )
-        }
+        self.aiSession = AiAgentSession(service: service)
         self.onClose = onClose
+        observeAgentSession()
     }
 
-    init(performAction: @escaping PerformAction, onClose: @escaping () -> Void) {
-        self.performAction = performAction
+    init(aiSession: AiAgentSession, onClose: @escaping () -> Void) {
+        self.aiSession = aiSession
         self.onClose = onClose
+        observeAgentSession()
+    }
+
+    var currentAction: AiToolAction? {
+        aiSession.currentAction
+    }
+
+    var conversationMessages: [AiMessage] {
+        aiSession.visibleMessages
+    }
+
+    var lastAssistantContent: String? {
+        aiSession.lastAssistantContent
+    }
+
+    var isLoading: Bool {
+        aiSession.isLoading
+    }
+
+    var errorMessage: String? {
+        aiSession.errorMessage
+    }
+
+    var canRetry: Bool {
+        aiSession.canRetry
     }
 
     var titleText: String {
-        guard let currentAction else { return "划词助手" }
-        return currentAction.resultTitle
+        currentAction?.resultTitle ?? "划词助手"
+    }
+
+    var statusHint: String {
+        if isLoading {
+            return "正在生成..."
+        }
+        if errorMessage != nil {
+            return "请求失败，可重试"
+        }
+        if lastAssistantContent != nil {
+            return "生成完成"
+        }
+        return "请选择动作"
     }
 
     var canSubmitFollowUp: Bool {
-        !followUpInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isLoading
+        lastAssistantContent != nil &&
+            !followUpInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !isLoading
     }
 
     var suggestions: [String] {
-        guard let currentAction else { return [] }
-        return currentAction.suggestions
+        guard lastAssistantContent != nil else { return [] }
+        return currentAction?.suggestions ?? []
     }
 
     func reset(with text: String) {
-        invalidateCurrentRequest()
+        aiSession.clear()
         isDismissed = false
         selectedText = text
-        currentAction = nil
-        conversationTurns = []
-        statusHint = "请选择动作"
         followUpInput = ""
         isOriginalExpanded = false
-        isLoading = false
         mode = .toolbar
         onModeChanged?(.toolbar)
     }
 
-    func handlePrimaryAction(_ action: DeepSeekService.ToolAction) {
+    func handlePrimaryAction(_ action: AiToolAction) {
         guard !isDismissed else { return }
         switch action {
         case .copy:
@@ -90,81 +103,26 @@ final class PanelSessionViewModel: ObservableObject {
         default:
             mode = .result
             onModeChanged?(.result)
-            run(action: action, followUp: nil)
-        }
-    }
-
-    func run(action: DeepSeekService.ToolAction, followUp: String?) {
-        guard !isDismissed, !isLoading else { return }
-        currentAction = action
-        isLoading = true
-        statusHint = "正在生成..."
-
-        let generation = requestGeneration
-        let originalText = selectedText
-        let priorResult = conversationTurns.last?.answer
-        let performer = performAction
-
-        currentTask = Task { [weak self] in
-            do {
-                let output = try await performer(
-                    action,
-                    originalText,
-                    priorResult,
-                    followUp
-                )
-                guard !Task.isCancelled,
-                      let self,
-                      self.requestGeneration == generation,
-                      !self.isDismissed else {
-                    return
-                }
-
-                let turn = ConversationTurn(question: followUp, answer: output)
-                self.conversationTurns.append(turn)
-                self.isLoading = false
-                self.statusHint = "生成完成"
-                self.currentTask = nil
-                if followUp != nil {
-                    self.followUpInput = ""
-                }
-            } catch {
-                guard !Task.isCancelled,
-                      let self,
-                      self.requestGeneration == generation,
-                      !self.isDismissed else {
-                    return
-                }
-
-                let errorMessage = error.localizedDescription
-                let turn = ConversationTurn(question: followUp, answer: errorMessage)
-                self.conversationTurns.append(turn)
-                self.isLoading = false
-                self.statusHint = "请求失败，可重试"
-                self.currentTask = nil
-            }
+            aiSession.runToolAction(action, sourceText: selectedText)
         }
     }
 
     func retry() {
-        guard !isDismissed,
-              let currentAction,
-              let lastTurn = conversationTurns.last else {
-            return
-        }
-        conversationTurns.removeLast()
-        run(action: currentAction, followUp: lastTurn.question)
+        guard !isDismissed else { return }
+        aiSession.retry()
     }
 
     func submitFollowUp() {
         let text = followUpInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !isDismissed, let currentAction, !text.isEmpty else { return }
-        run(action: currentAction, followUp: text)
+        guard !isDismissed, !text.isEmpty else { return }
+        if aiSession.sendMessage(text) {
+            followUpInput = ""
+        }
     }
 
     func askSuggestion(_ suggestion: String) {
-        guard !isDismissed, let currentAction else { return }
-        run(action: currentAction, followUp: suggestion)
+        guard !isDismissed else { return }
+        _ = aiSession.sendMessage(suggestion)
     }
 
     func copyOriginalText() {
@@ -173,9 +131,9 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     func copyResult() {
-        guard let lastAnswer = conversationTurns.last?.answer, !lastAnswer.isEmpty else { return }
+        guard let lastAssistantContent, !lastAssistantContent.isEmpty else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lastAnswer, forType: .string)
+        NSPasteboard.general.setString(lastAssistantContent, forType: .string)
     }
 
     func toggleOriginalExpanded() {
@@ -186,8 +144,7 @@ final class PanelSessionViewModel: ObservableObject {
     func prepareForDismissal() -> Bool {
         guard !isDismissed else { return false }
         isDismissed = true
-        invalidateCurrentRequest()
-        isLoading = false
+        aiSession.cancel()
         return true
     }
 
@@ -195,9 +152,9 @@ final class PanelSessionViewModel: ObservableObject {
         onClose()
     }
 
-    private func invalidateCurrentRequest() {
-        requestGeneration += 1
-        currentTask?.cancel()
-        currentTask = nil
+    private func observeAgentSession() {
+        agentObservation = aiSession.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 }

@@ -20,39 +20,45 @@ swift build  # 仅验证编译，不生成可运行的 .app
 swift test   # 运行单元测试（SPM test target：HaxPickAppTests）
 ```
 
-Xcode 工程无独立测试 target，单元测试由 SPM `HaxPickAppTests` 承载；无 lint/format 配置。
+Xcode 工程无独立测试 target，单元测试由 SPM `HaxPickAppTests` 承载。GitHub Actions 会在 PR 与 `main` push 上运行 `swift test` 和实际 macOS Xcode build。
 
 ## 平台约束
 
 - macOS 13+（`Package.swift` 声明 `.macOS(.v13)`，`Info.plist` 设 `LSMinimumSystemVersion = 13.0`）
 - Swift 5.9（`Package.swift` `swift-tools-version: 5.9`）
-- 应用是纯菜单栏模式：`LSUIElement = true` + `NSApp.setActivationPolicy(.accessory)`，**没有 Dock 图标**，因此也不能用 `NSApplication.shared.keyWindow` 等通常的主窗口 API
+- 应用是纯菜单栏模式：`LSUIElement = true` + `NSApp.setActivationPolicy(.accessory)`，**没有 Dock 图标**，因此不能依赖普通主窗口生命周期
 
 ## 架构
 
-```
+```text
 HaxPickApp (SwiftUI @main, MenuBarExtra)
   └── AppDelegate → AppState.shared.start()
-        └── AppState (单例，所有状态的唯一持有者)
-              ├── SelectionMonitor (全局鼠标事件)
-              │     ├── AccessibilityTextService (通道一)
-              │     └── ClipboardSelectionService (通道二)
-              ├── PermissionGuideWindowController (首次启动权限引导)
-              ├── ToolbarPanelController (NSPanel 生命周期)
-              │     ├── PanelSessionViewModel (独立文件，@ObservableObject)
-              │     ├── FloatingToolbarView (SwiftUI 工具栏/结果面板)
-              │     └── MarkdownWithCodeBlocks (Markdown + 代码高亮渲染)
-              ├── MenuBarContentView (托盘卡片式 UI)
-              └── DeepSeekService (API 调用)
+        └── AppState（应用生命周期 / 顶层编排）
+              ├── SelectionMonitor（全局鼠标事件）
+              │     ├── AccessibilityTextService
+              │     └── ClipboardSelectionService
+              ├── PermissionGuideWindowController
+              ├── ToolbarPanelController（NSPanel 生命周期）
+              │     └── PanelSessionViewModel（Panel / UI 状态）
+              │           └── AiAgentSession（AI 会话状态与请求生命周期）
+              │                 ├── AiMessage
+              │                 ├── AiToolAction
+              │                 ├── AiPrompts
+              │                 └── DeepSeekService（HTTP / DTO / 错误映射）
+              └── MenuBarContentView
 ```
 
-**`AppState` 是唯一的状态中心。** 所有组件通过它协调：
-- `AppState.shared` 持有 `SelectionMonitor`、`ToolbarPanelController`、`DeepSeekService` 的实例
-- `SelectionMonitor` 检测到划词后通过回调通知 `AppState`
-- `AppState.showToolbar(for:at:)` 将文本、坐标和 `DeepSeekService` 传给 `ToolbarPanelController`
-- `ToolbarPanelController.show()` 创建/更新 `PanelSessionViewModel` 并弹出 `NSPanel`
-- `AppState.start()` 在未开启辅助功能时会自动展示首次启动权限引导页
-- `PanelSessionViewModel` 已独立为单独文件，不再内嵌在 `FloatingToolbarView.swift` 中
+`AppState` 不再被定义为“所有状态唯一持有者”。它仍负责应用级生命周期和组件编排；单次划词 AI 会话的 history、loading、error、generation、retry/cancel 由 `AiAgentSession` 独立持有。
+
+职责边界：
+
+- `AppState`：权限、设置、SelectionMonitor、Panel Controller、DeepSeekService 实例编排
+- `ToolbarPanelController`：NSPanel 创建、定位、聚焦、dismiss
+- `PanelSessionViewModel`：toolbar/result 模式、选中文本、输入框、原文展开状态，以及对 `AiAgentSession` 的 UI 投影
+- `AiAgentSession`：AI history、请求生命周期、generation、cancel、retry、rollback
+- `AiPrompts`：system prompt / 首次工具 prompt
+- `AiToolAction`：工具动作与展示 metadata
+- `DeepSeekService`：把 `[AiMessage]` 序列化并发送到 DeepSeek，不再决定业务 prompt 或 conversation history
 
 ## 关键机制
 
@@ -60,91 +66,194 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 
 `SelectionMonitor.handleMouseUp()` 中的读取顺序不可颠倒：
 
-1. **Accessibility API**（`AccessibilityTextService.selectedTextSnapshot`）— `SelectionMonitor` 会在 `mouseUp` 当下先对当前焦点元素抓一份早期 AX 选区快照，随后再经过 150ms 等待和 2 次 AX 重试；如果目标应用自己的划词 toolbar 让后续选区消失，最终会回退到这份早快照。
-2. **⌘C 兜底**（`ClipboardSelectionService.selectedTextBySimulatedCopy`）— 仅在通道一返回 `nil` 且当前焦点元素仍暴露 `kAXSelectedTextAttribute` / `kAXSelectedTextRangeAttribute` / `kAXNumberOfCharactersAttribute` 这类文本属性，或角色为浏览器 Web 内容区域（如 `AXWebArea`）时执行。流程仍然是“保存剪贴板 → 写 marker → 模拟 ⌘C → 读取后恢复”，但不再固定等待 400ms，而是最多轮询 400ms；一旦读到文本立即恢复，若外部程序已改写剪贴板则不再强行覆盖。
+1. **Accessibility API**（`AccessibilityTextService.selectedTextSnapshot`）— `SelectionMonitor` 会在 `mouseUp` 当下先抓早期 AX 选区快照，再经过 150ms 等待和 AX 重试；如果目标应用自己的划词 toolbar 让后续选区消失，最终会回退到早期快照。
+2. **⌘C 兜底**（`ClipboardSelectionService.selectedTextBySimulatedCopy`）— 仅在 AX 通道失败且目标仍表现为可读取文本区域时执行。流程为“保存剪贴板 → 写 marker → 模拟 ⌘C → 读取后恢复”，并避免覆盖期间出现的外部剪贴板修改。
 
 ### 划词检测阈值
 
-- 鼠标拖动距离 ≥ **8pt** 才视为有效划词（`SelectionMonitor.minimumSelectionDragDistance`）
+- 鼠标拖动距离 ≥ **8pt** 才视为有效划词
 - 鼠标抬起后等待 **150ms** 让系统完成选中状态更新
 - 同一文本 **1.2s** 内不重复触发
-- 用户关闭面板"忽略"的文本，在下次有效拖动前不再触发（`ignoredSelection`）
+- 用户关闭面板后，该文本在下次有效拖动前不再触发
 
 ### 面板两个模式
 
 `PanelSessionViewModel.PanelMode`：
-- `.toolbar` — 紧凑工具栏 320×48pt，4 个平铺胶囊按钮（复制/翻译/解释/总结），左侧有九宫格拖动把手
-- `.result` — 结果面板 440×628pt，顶部标题 + 原文区(可展开) + 滚动对话区(280pt) + 操作栏 + 继续提问区
 
-面板尺寸由 `FloatingPanelLayout` 统一提供，SwiftUI 根视图与 `ToolbarPanelController` 不再各自维护一套宽高常量。
+- `.toolbar` — 320×48pt，复制/翻译/解释/总结
+- `.result` — 440×628pt，标题 + 原文区 + AI 对话区 + 操作栏 + 继续提问
 
-模式切换通过 `viewModel.mode` 驱动，`onModeChanged` 回调触发 `ToolbarPanelController` 调整 `NSPanel` 的 `contentSize` 和 `frameOrigin`。焦点策略也按模式分离：`.toolbar` 只 `orderFront`，不主动 `activate`，并且 `hidesOnDeactivate = false`，避免在 app 未激活时刚显示就被系统收起；`.result` 才 `activate + makeKeyAndOrderFront`，同时恢复 `hidesOnDeactivate = true` 以支持失焦关闭。
+面板尺寸由 `FloatingPanelLayout` 统一提供。
 
-### 面板请求生命周期
+`.toolbar` 不主动 activate，`hidesOnDeactivate = false`；`.result` 使用 `activate + makeKeyAndOrderFront`，并设 `hidesOnDeactivate = true`。
 
-`PanelSessionViewModel` 为当前 AI 请求维护 `requestGeneration` 与 `currentTask`：
-- 每次 `reset(with:)` 都会递增 generation、取消旧 Task，再开始新选区会话
-- 显式关闭、ESC、点击面板外部，以及 `.result` 面板 `windowDidResignKey` 等 dismiss 路径最终都会进入 `ToolbarPanelController.dismissPanel()`，再调用 `prepareForDismissal()` 使当前请求失效
-- `prepareForDismissal()` 是幂等的，避免鼠标 monitor 与 `windowDidResignKey` 同时触发时重复关闭、重复写入 ignored selection
-- 请求完成时必须同时满足“Task 未取消 + generation 未变化 + 面板仍处于当前会话”才允许写入 `conversationTurns`
-- 即使底层异步实现没有及时响应 Task cancellation，generation 校验仍会阻止旧结果污染新划词会话
+### AI Session 与完整历史
 
-### 对话气泡与结果区
+一次工具任务开始后，`AiAgentSession` 内部 history 结构为：
 
-`PanelSessionViewModel` 的结果不再用单个 `resultText` 字符串，而是 `conversationTurns: [ConversationTurn]`：
-- 每个 `ConversationTurn` 包含 `question: String?`（用户追问）和 `answer: String`（AI 回复）
-- 首次操作（翻译/解释等）的 turn 没有用户气泡；后续追问会追加用户气泡 + AI 气泡
-- 结果区以 `LazyVStack` 渲染对话历史，用户消息右对齐深蓝白字，AI 消息左对齐带图标
-- AI 回复通过 `MarkdownWithCodeBlocks` 渲染，按句号/问号/感叹号后换行自动分段，代码块以暗色卡片 + Swift 语法高亮展示
+```text
+system（隐藏）
+user: 初始工具 prompt + 原文（隐藏）
+assistant: 首次结果（可见）
+user: Q1（可见）
+assistant: A1（可见）
+user: Q2（可见）
+assistant: A2（可见）
+...
+```
 
-### 提示词分段策略
+`isVisible` 只控制本地 UI 是否渲染，不影响 DeepSeek 请求。`DeepSeekService` 会把完整 history 的 `role + content` 全部发送给模型。
 
-所有 system prompt / user prompt / 追问 prompt 末尾统一追加分段指令：
+因此后续追问不再使用旧的：
 
-> `每个句子请用句号结尾并换行以形成自然段落；简短连续的内容请用逗号连接，不要强行断句。`
+```text
+原文 + 上一轮结果 + 当前问题
+```
 
-`MarkdownWithCodeBlocks` 客户端侧通过正则 `[。！？!?.][\n\s]+` 拆分段落，即使 AI 未严格遵循也能兜底。
+而是发送真正的完整 conversation history。
 
-### NSPanel 配置
+### SourceTextCard 与 Chat History 分离
 
-`HaxPickPanel`（定义在 `Theme.swift`，继承 `NSPanel`，被 `ToolbarPanelController` 和 `PermissionGuideWindowController` 共享）的关键属性：
-- `styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView]`
-- `level: .floating` — 始终悬浮在普通窗口之上
-- `collectionBehavior: [.canJoinAllSpaces, .fullScreenAuxiliary]` — 跨桌面空间可用
-- `ToolbarPanelController` 中 `.toolbar` 使用 `hidesOnDeactivate = false`，`.result` 使用 `hidesOnDeactivate = true`；权限引导 Panel 单独保持 `false`
-- `.result` 面板通过 `NSWindowDelegate.windowDidResignKey` 把系统失焦统一映射到 dismiss / request invalidation
-- `isMovableByWindowBackground = true` — 用户可拖拽
-- `canBecomeKey = true` / `canBecomeMain = true` — 允许接收键盘事件（ESC 关闭）
+用户划选的原文仍由结果面板的原文区域单独展示，不直接生成一条用户聊天气泡。
 
-`AppTheme.makeClippedHostingView(rootView:size:)` 是共享的圆角裁剪工具，将 SwiftUI 视图包裹在 `NSHostingView` → 圆角 `NSView` → 固定尺寸容器中。
+模型侧需要原文上下文，因此初始工具 prompt 作为 `isVisible = false` 的 user message 存进 AI history。这样同时满足：
 
-### 应用图标
+- UI 保持“划词工具”而不是普通聊天窗口
+- 模型拥有完整上下文
+- 后续多轮请求能够自然携带原文和之前所有 Q/A
 
-图标源文件位于 `hax_pick/` 目录（橙色 "h" 品牌图标）：
-- `AppIcon.icns` — 产品图标，含 16~1024px 全尺寸族，由 Copy AppIcon 构建脚本拷贝到 `.app/Contents/Resources/`，`Info.plist` 的 `CFBundleIconFile` 引用
-- `MenuBarIcon.png`(32px) / `MenuBarIcon@2x.png`(64px) — 托盘图标，按 16×16pt 显示（2 倍超采样），`NSImage` 加载时自动配对 `@2x` 变体
+### 请求生命周期与 stale result
 
-对外展示用高清图标为 `assets/app-icon.png`（1024×1024，提取自 `AppIcon.icns`），README 顶部即引用此图。
+`AiAgentSession` 持有：
+
+- `currentTask`
+- `generation`
+- `isLoading`
+- `errorMessage`
+- retry plan
+
+`clear()`、`cancel()`、开始新的 tool action 都会使旧 Task 失效并递增 generation。
+
+请求完成时必须满足：
+
+```text
+Task 未取消
++
+request generation == 当前 generation
+```
+
+才允许写入 history。
+
+即使底层异步调用没有及时响应 Task cancellation，旧结果也不能污染新的划词 Session。
+
+### 错误与 rollback
+
+错误不再作为：
+
+```text
+assistant("网络错误...")
+```
+
+写入 conversation history。
+
+现在错误存放在独立 `errorMessage` 状态，由 UI 以 error card 展示。
+
+追问流程：
+
+```text
+append user Q
+↓
+发送完整 history
+↓
+成功：append assistant A
+失败：remove pending user Q
+      + errorMessage
+      + 保存 retry plan
+```
+
+因此错误文本不会：
+
+- 被“复制结果”复制
+- 被下一轮当作 assistant 上下文发送
+- 污染完整会话历史
+
+### Retry / Regenerate
+
+失败重试与成功后“重新生成”使用不同语义：
+
+- 初次工具请求失败：复用当前隐藏 system/user context
+- 追问失败：失败时回滚 pending user；retry 时只重新 append 一次该 user message
+- 已成功响应后重新生成：保留当前 assistant 作为已提交结果，同时构造一个“不包含该 assistant”的 request snapshot 发给模型
+
+Regenerate 使用事务式提交：
+
+```text
+已提交 history：... user Q1 → assistant A1
+                    │
+                    ├─ UI 继续保留 A1
+                    │
+                    └─ request snapshot：... user Q1
+                                      ↓
+                              请求新的 assistant
+```
+
+结果：
+
+```text
+成功：原位把 A1 替换为 A1-new
+失败：保留 A1 + 展示 errorMessage
+      retry 继续使用同一个 pre-regenerate snapshot
+```
+
+这样网络失败不会销毁用户已经拿到的成功回答，也不会把 history 留在未回答的 user message 上。
+
+在首次 assistant 响应成功之前，Session 不接受 follow-up；初始请求失败时应该先 retry，而不是基于不存在的结果继续追问。
+
+### 提示词职责
+
+`AiPrompts` 负责：
+
+- `systemPrompt(for:)`
+- `initialUserPrompt(for:text:)`
+
+后续追问直接作为普通 user message 追加到完整 history，不再由 `DeepSeekService` 拼接特殊 follow-up prompt。
+
+### NSPanel 生命周期
+
+`HaxPickPanel` 由 `ToolbarPanelController` 管理。
+
+显式关闭、ESC、点击面板外部，以及 `.result` 的 `windowDidResignKey` 都最终进入统一 dismiss 流程。
+
+`prepareForDismissal()` 是幂等的，同时调用 `AiAgentSession.cancel()`，保证隐藏面板不会继续接受旧 AI 请求结果。
+
+### Markdown 渲染
+
+AI 可见 assistant message 仍通过 `MarkdownWithCodeBlocks` 渲染。Markdown / 代码高亮当前没有跟随 AI Session 重构一起替换，避免把网络、会话和渲染三类改动混在一个 PR 中。
 
 ### API Key 存储
 
-使用 `UserDefaults`（key: `deepseek_api_key`）。无默认 Key，用户需在菜单栏面板中自行填写自己的 DeepSeek API Key；当输入被清空时会同步删除持久化值，避免重启后旧 Key 回弹。
+当前仍使用 `UserDefaults`（key: `deepseek_api_key`）。空值会删除持久化记录，避免重启后旧 Key 回弹。
+
+Keychain 迁移属于后续工程质量阶段，不与本次 AI Session 重构混合。
 
 ### DeepSeek API
 
 - 端点：`https://api.deepseek.com/chat/completions`
 - 模型：`deepseek-v4-flash` / `deepseek-v4-pro`
 - 超时：45s
-- 错误处理：优先解析 JSON `error.message`，失败则回退到 HTTP body 原始字符串
+- DeepSeekService 输入：`[AiMessage]`
+- DeepSeekService 输出：单次完整 assistant 文本
+- 错误处理：优先解析 JSON `error.message`，失败则回退 HTTP body
 
-### 继续追问的上下文
-
-追问请求的 user prompt 结构为「当前原文 + 上一轮结果 + 追问内容」，由 `DeepSeekService.buildPrompt()` 构建。结果**追加**到 `conversationTurns` 数组作为新一轮对话气泡，而非替换。
+Streaming / SSE 不在当前架构阶段实现。
 
 ## 开发注意事项
 
-- 所有 `@MainActor` 标注是必须的 — `NSEvent` 全局监听回调和 `AXUIElement` 操作都必须在主线程
-- `AppState` 是 `@MainActor` 单例，`weak self` 捕获用于打破可能的循环引用（如 `DeepSeekService.apiKeyProvider`）
-- `ToolbarPanelController` 复用同一个 `PanelSessionViewModel` 实例，每次 `show()` 调用 `viewModel.reset()` 清空旧状态并使旧请求失效
-- 不要在 `FloatingToolbarView` 中直接操作 `NSPanel` — 所有面板级别的操作通过 `PanelSessionViewModel.onModeChanged` 回调，由 `ToolbarPanelController` 处理
-- `ClipboardSelectionService` 的 `simulateCommandC()` 使用 CGEvent 的 `.cghidEventTap`，不要改用其他 tap 类型
+- `AppState` 是应用生命周期与顶层编排，不要把 AI history 再放回 AppState
+- `PanelSessionViewModel` 不应该重新持有 HTTP Task / generation / conversation history
+- `AiAgentSession` 是 AI 会话状态的唯一写入点
+- `DeepSeekService` 不应该重新加入 tool action switch、prompt 拼接或“上一轮结果”逻辑
+- Regenerate 必须保持事务式：请求失败不能删除最后一个已提交 assistant
+- 不要在 `FloatingToolbarView` 中直接操作 `NSPanel`
+- 新增 Sources 文件时必须同时加入 `hax_pick.xcodeproj` Sources build phase；`swift test` 通过并不代表实际 `.app` target 已包含新文件
+- `ClipboardSelectionService.simulateCommandC()` 使用 `.cghidEventTap`，不要随意更改

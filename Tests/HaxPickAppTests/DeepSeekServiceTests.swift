@@ -16,7 +16,7 @@ final class DeepSeekServiceTests: XCTestCase {
         XCTAssertEqual(AppState.persistableAPIKey(from: "  sk-test  "), "sk-test")
     }
 
-    func testPerformBuildsBearerRequestWithSelectedModel() async throws {
+    func testCompleteBuildsBearerRequestWithSelectedModelAndFullMessages() async throws {
         let client = MockDeepSeekHTTPClient(
             data: Self.successResponseData(content: "  结果  "),
             response: Self.httpResponse(statusCode: 200)
@@ -26,8 +26,14 @@ final class DeepSeekServiceTests: XCTestCase {
             modelProvider: { .pro },
             httpClient: client
         )
+        let messages = [
+            AiMessage(role: .system, content: "system", isVisible: false),
+            AiMessage(role: .user, content: "Hello", isVisible: false),
+            AiMessage(role: .assistant, content: "你好"),
+            AiMessage(role: .user, content: "为什么这样翻译？"),
+        ]
 
-        let result = try await service.perform(action: .translate, text: "Hello")
+        let result = try await service.complete(messages: messages)
 
         XCTAssertEqual(result, "结果")
         XCTAssertEqual(client.recordedRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
@@ -36,13 +42,13 @@ final class DeepSeekServiceTests: XCTestCase {
         let payload = try Self.jsonObject(from: body)
         XCTAssertEqual(payload["model"] as? String, "deepseek-v4-pro")
 
-        let messages = try XCTUnwrap(payload["messages"] as? [[String: Any]])
-        XCTAssertEqual(messages.count, 2)
-        XCTAssertEqual(messages[0]["role"] as? String, "system")
-        XCTAssertEqual(messages[1]["role"] as? String, "user")
+        let requestMessages = try XCTUnwrap(payload["messages"] as? [[String: Any]])
+        XCTAssertEqual(requestMessages.count, 4)
+        XCTAssertEqual(requestMessages.map { $0["role"] as? String }, ["system", "user", "assistant", "user"])
+        XCTAssertEqual(requestMessages[3]["content"] as? String, "为什么这样翻译？")
     }
 
-    func testPerformMissingAPIKeyDoesNotSendRequest() async {
+    func testCompleteMissingAPIKeyDoesNotSendRequest() async {
         let client = MockDeepSeekHTTPClient(
             data: Data(),
             response: Self.httpResponse(statusCode: 200)
@@ -54,7 +60,9 @@ final class DeepSeekServiceTests: XCTestCase {
         )
 
         do {
-            _ = try await service.perform(action: .translate, text: "Hello")
+            _ = try await service.complete(
+                messages: [AiMessage(role: .user, content: "Hello")]
+            )
             XCTFail("Expected missingAPIKey error")
         } catch let error as DeepSeekError {
             XCTAssertEqual(error.errorDescription, "请先在菜单栏面板里填写 DeepSeek API Key。")
