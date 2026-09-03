@@ -91,12 +91,15 @@ struct DeepSeekService {
                     }
 
                     var emittedContent = false
+                    var receivedDone = false
+
                     for try await line in lines {
                         try Task.checkCancellation()
                         guard let payload = Self.ssePayload(from: line) else {
                             continue
                         }
                         if payload == "[DONE]" {
+                            receivedDone = true
                             break
                         }
 
@@ -113,6 +116,9 @@ struct DeepSeekService {
                         }
                     }
 
+                    guard receivedDone else {
+                        throw DeepSeekError.incompleteStream
+                    }
                     guard emittedContent else {
                         throw DeepSeekError.emptyResult
                     }
@@ -184,6 +190,7 @@ private enum APIErrorMessageParser {
 enum DeepSeekError: LocalizedError {
     case missingAPIKey
     case invalidResponse
+    case incompleteStream
     case emptyResult
     case requestFailed(statusCode: Int, message: String)
 
@@ -193,6 +200,8 @@ enum DeepSeekError: LocalizedError {
             return "请先在菜单栏面板里填写 DeepSeek API Key。"
         case .invalidResponse:
             return "DeepSeek 响应格式无效。"
+        case .incompleteStream:
+            return "DeepSeek 流式响应提前中断，回答可能不完整，请重试。"
         case .emptyResult:
             return "DeepSeek 没有返回可展示的内容。"
         case .requestFailed(let statusCode, let message):
