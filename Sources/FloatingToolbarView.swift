@@ -14,7 +14,11 @@ struct FloatingToolbarView: View {
             }
         }
         .padding(viewModel.mode == .toolbar ? 10 : 18)
-        .frame(width: viewModel.mode == .toolbar ? 320 : 440)
+        .frame(
+            width: viewModel.mode == .toolbar
+                ? FloatingPanelLayout.toolbarSize.width
+                : FloatingPanelLayout.resultSize.width
+        )
         .background(AppTheme.background)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous))
         .overlay(

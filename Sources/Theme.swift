@@ -27,6 +27,13 @@ enum AppTheme {
     static let corner: CGFloat = 14
 }
 
+// MARK: - 悬浮面板尺寸
+
+enum FloatingPanelLayout {
+    static let toolbarSize = NSSize(width: 320, height: 48)
+    static let resultSize = NSSize(width: 440, height: 628)
+}
+
 // MARK: - 共享 NSPanel 子类
 
 final class HaxPickPanel: NSPanel {

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class ToolbarPanelController {
+final class ToolbarPanelController: NSObject, NSWindowDelegate {
     private let screenEdgeInset: CGFloat = 12
     private let toolbarVerticalOffset: CGFloat = 12
     private let resultVerticalOffset: CGFloat = 8
@@ -62,15 +62,16 @@ final class ToolbarPanelController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.delegate = self
         return panel
     }
 
     private func panelSize(for mode: PanelSessionViewModel.PanelMode) -> NSSize {
         switch mode {
         case .toolbar:
-            return NSSize(width: 320, height: 48)
+            return FloatingPanelLayout.toolbarSize
         case .result:
-            return NSSize(width: 436, height: 628)
+            return FloatingPanelLayout.resultSize
         }
     }
 
@@ -164,9 +165,21 @@ final class ToolbarPanelController {
         dismissPanel()
     }
 
+    func windowDidResignKey(_ notification: Notification) {
+        guard let resignedPanel = notification.object as? HaxPickPanel,
+              resignedPanel === panel,
+              sessionViewModel?.mode == .result else {
+            return
+        }
+        dismissPanel()
+    }
+
     private func dismissPanel() {
-        if let text = sessionViewModel?.selectedText, !text.isEmpty {
-            onDismissSelection?(text)
+        if let viewModel = sessionViewModel {
+            guard viewModel.prepareForDismissal() else { return }
+            if !viewModel.selectedText.isEmpty {
+                onDismissSelection?(viewModel.selectedText)
+            }
         }
         panel?.close()
     }

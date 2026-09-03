@@ -2,6 +2,13 @@ import SwiftUI
 
 @MainActor
 final class PanelSessionViewModel: ObservableObject {
+    typealias PerformAction = (
+        DeepSeekService.ToolAction,
+        String,
+        String?,
+        String?
+    ) async throws -> String
+
     enum PanelMode {
         case toolbar
         case result
@@ -23,11 +30,26 @@ final class PanelSessionViewModel: ObservableObject {
     @Published var isOriginalExpanded = false
     var onModeChanged: ((PanelMode) -> Void)?
 
-    private let service: DeepSeekService
+    private let performAction: PerformAction
     private let onClose: () -> Void
+    private var requestGeneration = 0
+    private var currentTask: Task<Void, Never>?
+    private var isDismissed = false
 
     init(service: DeepSeekService, onClose: @escaping () -> Void) {
-        self.service = service
+        self.performAction = { action, text, previousResult, followUp in
+            try await service.perform(
+                action: action,
+                text: text,
+                previousResult: previousResult,
+                followUp: followUp
+            )
+        }
+        self.onClose = onClose
+    }
+
+    init(performAction: @escaping PerformAction, onClose: @escaping () -> Void) {
+        self.performAction = performAction
         self.onClose = onClose
     }
 
@@ -46,6 +68,8 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     func reset(with text: String) {
+        invalidateCurrentRequest()
+        isDismissed = false
         selectedText = text
         currentAction = nil
         conversationTurns = []
@@ -58,6 +82,7 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     func handlePrimaryAction(_ action: DeepSeekService.ToolAction) {
+        guard !isDismissed else { return }
         switch action {
         case .copy:
             copyOriginalText()
@@ -70,55 +95,75 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     func run(action: DeepSeekService.ToolAction, followUp: String?) {
-        guard !isLoading else { return }
+        guard !isDismissed, !isLoading else { return }
         currentAction = action
         isLoading = true
         statusHint = "正在生成..."
 
+        let generation = requestGeneration
+        let originalText = selectedText
         let priorResult = conversationTurns.last?.answer
-        Task {
+        let performer = performAction
+
+        currentTask = Task { [weak self] in
             do {
-                let output = try await service.perform(
-                    action: action,
-                    text: selectedText,
-                    previousResult: priorResult,
-                    followUp: followUp
+                let output = try await performer(
+                    action,
+                    originalText,
+                    priorResult,
+                    followUp
                 )
-                await MainActor.run {
-                    let turn = ConversationTurn(question: followUp, answer: output)
-                    self.conversationTurns.append(turn)
-                    self.isLoading = false
-                    self.statusHint = "生成完成"
-                    if followUp != nil {
-                        self.followUpInput = ""
-                    }
+                guard !Task.isCancelled,
+                      let self,
+                      self.requestGeneration == generation,
+                      !self.isDismissed else {
+                    return
+                }
+
+                let turn = ConversationTurn(question: followUp, answer: output)
+                self.conversationTurns.append(turn)
+                self.isLoading = false
+                self.statusHint = "生成完成"
+                self.currentTask = nil
+                if followUp != nil {
+                    self.followUpInput = ""
                 }
             } catch {
-                await MainActor.run {
-                    let errorMessage = error.localizedDescription
-                    let turn = ConversationTurn(question: followUp, answer: errorMessage)
-                    self.conversationTurns.append(turn)
-                    self.isLoading = false
-                    self.statusHint = "请求失败，可重试"
+                guard !Task.isCancelled,
+                      let self,
+                      self.requestGeneration == generation,
+                      !self.isDismissed else {
+                    return
                 }
+
+                let errorMessage = error.localizedDescription
+                let turn = ConversationTurn(question: followUp, answer: errorMessage)
+                self.conversationTurns.append(turn)
+                self.isLoading = false
+                self.statusHint = "请求失败，可重试"
+                self.currentTask = nil
             }
         }
     }
 
     func retry() {
-        guard let currentAction, let lastTurn = conversationTurns.last else { return }
+        guard !isDismissed,
+              let currentAction,
+              let lastTurn = conversationTurns.last else {
+            return
+        }
         conversationTurns.removeLast()
         run(action: currentAction, followUp: lastTurn.question)
     }
 
     func submitFollowUp() {
         let text = followUpInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let currentAction, !text.isEmpty else { return }
+        guard !isDismissed, let currentAction, !text.isEmpty else { return }
         run(action: currentAction, followUp: text)
     }
 
     func askSuggestion(_ suggestion: String) {
-        guard let currentAction else { return }
+        guard !isDismissed, let currentAction else { return }
         run(action: currentAction, followUp: suggestion)
     }
 
@@ -137,7 +182,22 @@ final class PanelSessionViewModel: ObservableObject {
         isOriginalExpanded.toggle()
     }
 
+    @discardableResult
+    func prepareForDismissal() -> Bool {
+        guard !isDismissed else { return false }
+        isDismissed = true
+        invalidateCurrentRequest()
+        isLoading = false
+        return true
+    }
+
     func close() {
         onClose()
+    }
+
+    private func invalidateCurrentRequest() {
+        requestGeneration += 1
+        currentTask?.cancel()
+        currentTask = nil
     }
 }
