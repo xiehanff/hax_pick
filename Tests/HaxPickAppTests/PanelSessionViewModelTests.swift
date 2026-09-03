@@ -65,6 +65,27 @@ final class PanelSessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.statusHint, "生成完成")
     }
 
+    func testStopBeforeFirstChunkShowsRegenerateHint() async throws {
+        let responder = DeferredPanelStreamResponder()
+        let session = AiAgentSession(
+            stream: { messages in responder.stream(messages) },
+            publishIntervalNanoseconds: 0
+        )
+        let viewModel = PanelSessionViewModel(aiSession: session, onClose: {})
+
+        viewModel.reset(with: "selection")
+        viewModel.handlePrimaryAction(.explain)
+        try await waitUntil { responder.hasPendingStream }
+
+        viewModel.stopGeneration()
+
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertTrue(viewModel.didStop)
+        XCTAssertNil(viewModel.lastAssistantContent)
+        XCTAssertTrue(viewModel.canRetry)
+        XCTAssertEqual(viewModel.statusHint, "已停止，可重新生成")
+    }
+
     private func makeViewModel(responder: DeferredPanelResponder) -> PanelSessionViewModel {
         let session = AiAgentSession(complete: { messages in
             try await responder.complete(messages)
@@ -125,5 +146,19 @@ private final class DeferredPanelResponder {
     func succeed(_ value: String) {
         guard !continuations.isEmpty else { return }
         continuations.removeFirst().resume(returning: value)
+    }
+}
+
+private final class DeferredPanelStreamResponder {
+    private var continuation: AsyncThrowingStream<String, Error>.Continuation?
+
+    var hasPendingStream: Bool {
+        continuation != nil
+    }
+
+    func stream(_ messages: [AiMessage]) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            self.continuation = continuation
+        }
     }
 }
