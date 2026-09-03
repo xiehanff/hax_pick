@@ -48,7 +48,11 @@ final class PanelSessionViewModel: ObservableObject {
 
     var statusHint: String {
         if isLoading { return "正在生成..." }
-        if didStop { return "已停止，可继续使用当前结果" }
+        if didStop {
+            return lastAssistantContent == nil
+                ? "已停止，可重新生成"
+                : "已停止，可继续使用当前结果"
+        }
         if errorMessage != nil { return "请求失败，可重试" }
         if lastAssistantContent != nil { return "生成完成" }
         return "请选择动作"
