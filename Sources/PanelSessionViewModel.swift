@@ -32,55 +32,25 @@ final class PanelSessionViewModel: ObservableObject {
         observeAgentSession()
     }
 
-    var currentAction: AiToolAction? {
-        aiSession.currentAction
-    }
-
-    var conversationMessages: [AiMessage] {
-        aiSession.visibleMessages
-    }
-
-    var lastAssistantContent: String? {
-        aiSession.lastAssistantContent
-    }
-
-    var isLoading: Bool {
-        aiSession.isLoading
-    }
-
-    var errorMessage: String? {
-        aiSession.errorMessage
-    }
-
-    var didStop: Bool {
-        aiSession.didStop
-    }
-
-    var canRetry: Bool {
-        aiSession.canRetry
-    }
-
-    var canStop: Bool {
-        aiSession.canStop
-    }
+    var currentAction: AiToolAction? { aiSession.currentAction }
+    var conversationMessages: [AiMessage] { aiSession.visibleMessages }
+    var lastAssistantContent: String? { aiSession.lastAssistantContent }
+    var isLoading: Bool { aiSession.isLoading }
+    var errorMessage: String? { aiSession.errorMessage }
+    var didStop: Bool { aiSession.didStop }
+    var canRetry: Bool { aiSession.canRetry }
+    var canStop: Bool { aiSession.canStop }
+    var draftRevision: Int { aiSession.draftRevision }
 
     var titleText: String {
         currentAction?.resultTitle ?? "划词助手"
     }
 
     var statusHint: String {
-        if isLoading {
-            return "正在生成..."
-        }
-        if didStop {
-            return "已停止，可继续使用当前结果"
-        }
-        if errorMessage != nil {
-            return "请求失败，可重试"
-        }
-        if lastAssistantContent != nil {
-            return "生成完成"
-        }
+        if isLoading { return "正在生成..." }
+        if didStop { return "已停止，可继续使用当前结果" }
+        if errorMessage != nil { return "请求失败，可重试" }
+        if lastAssistantContent != nil { return "生成完成" }
         return "请选择动作"
     }
 
