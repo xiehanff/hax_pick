@@ -84,7 +84,8 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 
 `PanelSessionViewModel` 为当前 AI 请求维护 `requestGeneration` 与 `currentTask`：
 - 每次 `reset(with:)` 都会递增 generation、取消旧 Task，再开始新选区会话
-- `close()`、ESC、点击面板外部等所有 dismiss 路径最终都会调用 `prepareForDismissal()`，使当前请求失效
+- 显式关闭、ESC、点击面板外部，以及 `.result` 面板 `windowDidResignKey` 等 dismiss 路径最终都会进入 `ToolbarPanelController.dismissPanel()`，再调用 `prepareForDismissal()` 使当前请求失效
+- `prepareForDismissal()` 是幂等的，避免鼠标 monitor 与 `windowDidResignKey` 同时触发时重复关闭、重复写入 ignored selection
 - 请求完成时必须同时满足“Task 未取消 + generation 未变化 + 面板仍处于当前会话”才允许写入 `conversationTurns`
 - 即使底层异步实现没有及时响应 Task cancellation，generation 校验仍会阻止旧结果污染新划词会话
 
@@ -110,7 +111,8 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 - `styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView]`
 - `level: .floating` — 始终悬浮在普通窗口之上
 - `collectionBehavior: [.canJoinAllSpaces, .fullScreenAuxiliary]` — 跨桌面空间可用
-- `hidesOnDeactivate = true`（工具栏面板）/ `false`（权限引导面板，需要用户手动关闭）
+- `ToolbarPanelController` 中 `.toolbar` 使用 `hidesOnDeactivate = false`，`.result` 使用 `hidesOnDeactivate = true`；权限引导 Panel 单独保持 `false`
+- `.result` 面板通过 `NSWindowDelegate.windowDidResignKey` 把系统失焦统一映射到 dismiss / request invalidation
 - `isMovableByWindowBackground = true` — 用户可拖拽
 - `canBecomeKey = true` / `canBecomeMain = true` — 允许接收键盘事件（ESC 关闭）
 
