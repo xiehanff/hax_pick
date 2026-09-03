@@ -154,8 +154,7 @@ struct ResultPanelView: View {
                         proxy.scrollTo(tailID, anchor: .bottom)
                     }
                 }
-                .onChange(of: viewModel.isLoading) { isLoading in
-                    guard isLoading else { return }
+                .onChange(of: viewModel.requestRevision) { _ in
                     followTailState.requestDidStart()
                     DispatchQueue.main.async {
                         proxy.scrollTo(tailID, anchor: .bottom)
