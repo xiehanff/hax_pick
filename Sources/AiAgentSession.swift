@@ -13,6 +13,7 @@ final class AiAgentSession: ObservableObject {
     @Published private(set) var didStop = false
 
     private(set) var draftRevision = 0
+    private(set) var requestRevision = 0
 
     private enum RetryPlan {
         case currentContext
@@ -42,9 +43,12 @@ final class AiAgentSession: ObservableObject {
     private var activeDraftContent = ""
     private var lastDraftPublishNanoseconds: UInt64?
 
-    init(service: DeepSeekService) {
+    init(
+        service: DeepSeekService,
+        historyWindow: AiHistoryWindow = .standard
+    ) {
         self.stream = { messages in
-            service.stream(messages: messages)
+            service.stream(messages: historyWindow.requestMessages(from: messages))
         }
         self.publishIntervalNanoseconds = 40_000_000
     }
@@ -221,6 +225,7 @@ final class AiAgentSession: ObservableObject {
     ) {
         guard !isLoading else { return }
 
+        requestRevision += 1
         let requestGeneration = generation
         let requestMessages = explicitRequestMessages ?? messages
         let performer = stream
