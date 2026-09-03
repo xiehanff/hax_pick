@@ -87,6 +87,23 @@ final class AppStatePersistenceTests: XCTestCase {
         XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
     }
 
+    func testFailedExplicitSaveRemovesLegacyPlaintextSoOldKeyCannotReappear() {
+        let storage = makeDefaults()
+        defer { storage.clear() }
+        storage.defaults.set("sk-old", forKey: "deepseek_api_key")
+        let store = MockAPIKeyStore(saveError: StubStoreError.failed)
+
+        let success = AppState.persistAPIKey(
+            "sk-new",
+            store: store,
+            legacyDefaults: storage.defaults
+        )
+
+        XCTAssertFalse(success)
+        XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
+        XCTAssertNil(store.value)
+    }
+
     func testClearingAPIKeyRemovesLegacyPlaintextEvenWhenKeychainDeleteFails() {
         let storage = makeDefaults()
         defer { storage.clear() }
@@ -105,6 +122,24 @@ final class AppStatePersistenceTests: XCTestCase {
         XCTAssertFalse(success)
         XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
         XCTAssertEqual(store.deleteCount, 1)
+    }
+
+    func testAppStateSurfacesKeychainWriteFailureAndClearsErrorAfterRecovery() {
+        let storage = makeDefaults()
+        defer { storage.clear() }
+        let store = MockAPIKeyStore(saveError: StubStoreError.failed)
+        let appState = AppState(apiKeyStore: store, defaults: storage.defaults)
+
+        appState.apiKey = "sk-new"
+
+        XCTAssertNotNil(appState.apiKeyStorageError)
+        XCTAssertNil(storage.defaults.string(forKey: "deepseek_api_key"))
+
+        store.saveError = nil
+        appState.apiKey = "sk-recovered"
+
+        XCTAssertNil(appState.apiKeyStorageError)
+        XCTAssertEqual(store.value, "sk-recovered")
     }
 
     private func makeDefaults() -> TestDefaults {
@@ -132,9 +167,9 @@ private enum StubStoreError: Error {
 
 private final class MockAPIKeyStore: APIKeyStoring {
     var value: String?
-    let loadError: Error?
-    let saveError: Error?
-    let deleteError: Error?
+    var loadError: Error?
+    var saveError: Error?
+    var deleteError: Error?
     private(set) var savedValues: [String] = []
     private(set) var deleteCount = 0
 
