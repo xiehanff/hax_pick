@@ -133,10 +133,18 @@ struct MenuBarContentView: View {
                             .foregroundColor(.orange)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        Text("Key 保存在 macOS Keychain，修改后点击保存。")
-                            .font(.system(size: 10))
-                            .foregroundColor(AppTheme.textSecondary)
+                        Text(appState.apiKeyStorageStatusMessage)
+                            .font(.system(size: 10, weight: appState.apiKeyStorageNeedsAttention ? .medium : .regular))
+                            .foregroundColor(appState.apiKeyStorageNeedsAttention ? .orange : AppTheme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if appState.canRetryAPIKeyStorage {
+                        Button("重试迁移") {
+                            _ = appState.retryAPIKeyStorage()
+                            apiKeyDraft = appState.apiKey
+                        }
+                        .buttonStyle(SecondaryButtonStyle())
                     }
 
                     Button("保存") {
