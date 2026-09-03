@@ -126,17 +126,31 @@ struct MenuBarContentView: View {
                         .stroke(AppTheme.border, lineWidth: 1)
                 )
 
+                if let apiKeyStorageError = appState.apiKeyStorageError {
+                    Text(apiKeyStorageError)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(appState.apiKeyStorageStatusMessage)
+                        .font(.system(size: 10, weight: appState.apiKeyStorageNeedsAttention ? .medium : .regular))
+                        .foregroundColor(appState.apiKeyStorageNeedsAttention ? .orange : AppTheme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 HStack(spacing: 8) {
-                    if let apiKeyStorageError = appState.apiKeyStorageError {
-                        Text(apiKeyStorageError)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.orange)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text("Key 保存在 macOS Keychain，修改后点击保存。")
-                            .font(.system(size: 10))
-                            .foregroundColor(AppTheme.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer()
+
+                    if appState.canRetryAPIKeyStorage {
+                        Button("重试") {
+                            let committedBeforeRetry = appState.apiKey
+                            let draftWasUnmodified = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines) == committedBeforeRetry
+                            _ = appState.retryAPIKeyStorage()
+                            if draftWasUnmodified {
+                                apiKeyDraft = appState.apiKey
+                            }
+                        }
+                        .buttonStyle(SecondaryButtonStyle())
                     }
 
                     Button("保存") {

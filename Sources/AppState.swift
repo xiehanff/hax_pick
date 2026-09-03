@@ -101,6 +101,31 @@ enum APIKeyStoreError: LocalizedError {
     }
 }
 
+enum APIKeyStorageState: Equatable {
+    case keychain
+    case legacyMigrationPending
+    case keychainUnavailable
+    case empty
+
+    var canRetry: Bool {
+        switch self {
+        case .legacyMigrationPending, .keychainUnavailable:
+            return true
+        case .keychain, .empty:
+            return false
+        }
+    }
+
+    var needsAttention: Bool {
+        canRetry
+    }
+}
+
+struct APIKeyLoadResult: Equatable {
+    let value: String
+    let storageState: APIKeyStorageState
+}
+
 @MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
@@ -108,6 +133,7 @@ final class AppState: ObservableObject {
     private static let modelStorageKey = "deepseek_model"
 
     @Published private(set) var apiKey: String
+    @Published private(set) var apiKeyStorageState: APIKeyStorageState
 
     @Published var selectedModel: DeepSeekService.Model {
         didSet {
@@ -150,10 +176,12 @@ final class AppState: ObservableObject {
     ) {
         self.apiKeyStore = apiKeyStore
         self.defaults = defaults
-        self.apiKey = Self.loadInitialAPIKey(
+        let initialCredential = Self.loadInitialCredential(
             store: apiKeyStore,
             legacyDefaults: defaults
         )
+        self.apiKey = initialCredential.value
+        self.apiKeyStorageState = initialCredential.storageState
         self.selectedModel = DeepSeekService.Model(
             rawValue: defaults.string(forKey: Self.modelStorageKey) ?? ""
         ) ?? .flash
@@ -161,6 +189,29 @@ final class AppState: ObservableObject {
         panelController.onDismissSelection = { [weak self] text in
             self?.selectionMonitor.ignoreCurrentSelection(text)
         }
+    }
+
+    var apiKeyStorageStatusMessage: String {
+        switch apiKeyStorageState {
+        case .keychain:
+            return "Key 已安全保存在 macOS Keychain，修改后点击保存。"
+        case .legacyMigrationPending:
+            return "当前仍使用旧版存储，Keychain 迁移尚未完成。"
+        case .keychainUnavailable:
+            return apiKey.isEmpty
+                ? "暂时无法访问 macOS Keychain，请稍后重试。"
+                : "暂时无法访问 macOS Keychain，本次使用兼容凭证。"
+        case .empty:
+            return "尚未配置 API Key，保存后会写入 macOS Keychain。"
+        }
+    }
+
+    var canRetryAPIKeyStorage: Bool {
+        apiKeyStorageState.canRetry
+    }
+
+    var apiKeyStorageNeedsAttention: Bool {
+        apiKeyStorageState.needsAttention
     }
 
     func start() {
@@ -217,8 +268,21 @@ final class AppState: ObservableObject {
         }
 
         apiKey = trimmed
+        apiKeyStorageState = trimmed.isEmpty ? .empty : .keychain
         apiKeyStorageError = nil
         return true
+    }
+
+    @discardableResult
+    func retryAPIKeyStorage() -> Bool {
+        apiKeyStorageError = nil
+        let result = Self.loadInitialCredential(
+            store: apiKeyStore,
+            legacyDefaults: defaults
+        )
+        apiKey = result.value
+        apiKeyStorageState = result.storageState
+        return !result.storageState.canRetry
     }
 
     static func normalizedAPIKey(from storedValue: String?) -> String {
@@ -234,10 +298,14 @@ final class AppState: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func loadInitialAPIKey(
+    static func loadInitialCredential(
         store: any APIKeyStoring,
         legacyDefaults: UserDefaults
-    ) -> String {
+    ) -> APIKeyLoadResult {
+        let legacyValue = normalizedAPIKey(
+            from: legacyDefaults.string(forKey: legacyAPIKeyStorageKey)
+        )
+
         do {
             if let storedValue = try store.load() {
                 let normalized = normalizedAPIKey(from: storedValue)
@@ -246,36 +314,58 @@ final class AppState: ObservableObject {
                     if normalized != storedValue {
                         try? store.save(normalized)
                     }
-                    return normalized
+                    return APIKeyLoadResult(value: normalized, storageState: .keychain)
                 }
 
-                try? store.delete()
+                do {
+                    try store.delete()
+                } catch {
+                    return APIKeyLoadResult(
+                        value: legacyValue,
+                        storageState: .keychainUnavailable
+                    )
+                }
+            }
+        } catch APIKeyStoreError.invalidStoredValue {
+            // The item was found, but its payload is deterministically unusable.
+            // Unlike a transient Keychain read error, it is safe to delete this
+            // known-bad item before considering legacy migration.
+            do {
+                try store.delete()
+            } catch {
+                return APIKeyLoadResult(
+                    value: legacyValue,
+                    storageState: .keychainUnavailable
+                )
             }
         } catch {
-            // A Keychain read error makes the authoritative credential unknown.
+            // A transient Keychain read error makes the authoritative credential unknown.
             // The legacy value may be used for this launch, but must not be written
             // back into Keychain because doing so could overwrite a newer key that
             // merely failed to read transiently.
-            return normalizedAPIKey(
-                from: legacyDefaults.string(forKey: legacyAPIKeyStorageKey)
+            return APIKeyLoadResult(
+                value: legacyValue,
+                storageState: .keychainUnavailable
             )
         }
 
-        let legacyValue = legacyDefaults.string(forKey: legacyAPIKeyStorageKey)
-        let normalizedLegacyValue = normalizedAPIKey(from: legacyValue)
-        guard !normalizedLegacyValue.isEmpty else {
+        guard !legacyValue.isEmpty else {
             legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-            return ""
+            return APIKeyLoadResult(value: "", storageState: .empty)
         }
 
         do {
-            try store.save(normalizedLegacyValue)
+            try store.save(legacyValue)
             legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
+            return APIKeyLoadResult(value: legacyValue, storageState: .keychain)
         } catch {
             // Migration is best-effort. Keep the legacy value so a failed Keychain
             // write does not silently erase the user's only persisted credential.
+            return APIKeyLoadResult(
+                value: legacyValue,
+                storageState: .legacyMigrationPending
+            )
         }
-        return normalizedLegacyValue
     }
 
     @discardableResult
@@ -289,13 +379,10 @@ final class AppState: ObservableObject {
             return false
         }
 
-        // Explicit user changes retire the legacy plaintext immediately. The
-        // runtime value is committed separately only after this operation succeeds.
-        legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-
         guard let persistedAPIKey = persistableAPIKey(from: trimmed) else {
             do {
                 try store.delete()
+                legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
                 return true
             } catch {
                 return false
@@ -304,6 +391,7 @@ final class AppState: ObservableObject {
 
         do {
             try store.save(persistedAPIKey)
+            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
             return true
         } catch {
             return false
