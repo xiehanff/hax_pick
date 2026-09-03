@@ -109,11 +109,14 @@ final class AppState: ObservableObject {
 
     @Published var apiKey: String {
         didSet {
-            Self.persistAPIKey(
+            let success = Self.persistAPIKey(
                 apiKey,
                 store: apiKeyStore,
                 legacyDefaults: defaults
             )
+            apiKeyStorageError = success
+                ? nil
+                : "API Key 未能保存到 macOS Keychain，请重试。"
         }
     }
 
@@ -125,6 +128,7 @@ final class AppState: ObservableObject {
 
     @Published private(set) var permissionGranted = AXIsProcessTrusted()
     @Published private(set) var statusMessage = "准备就绪"
+    @Published private(set) var apiKeyStorageError: String?
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
 
@@ -262,8 +266,11 @@ final class AppState: ObservableObject {
         store: any APIKeyStoring,
         legacyDefaults: UserDefaults
     ) -> Bool {
+        // Once the user explicitly edits or clears the key, the legacy plaintext
+        // must never remain as a stale fallback that can reappear on the next launch.
+        legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
+
         guard let persistedAPIKey = persistableAPIKey(from: value) else {
-            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
             do {
                 try store.delete()
                 return true
@@ -274,7 +281,6 @@ final class AppState: ObservableObject {
 
         do {
             try store.save(persistedAPIKey)
-            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
             return true
         } catch {
             return false
