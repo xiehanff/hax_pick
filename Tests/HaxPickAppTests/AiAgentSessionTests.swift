@@ -138,9 +138,10 @@ final class AiAgentSessionTests: XCTestCase {
             1
         )
         XCTAssertEqual(responder.requests[2].last?.content, "Q1")
+        XCTAssertFalse(responder.requests[2].contains(where: { $0.content == "first answer" }))
     }
 
-    func testFailedRegenerationRequiresRetryBeforeAnotherFollowUp() async throws {
+    func testFailedRegenerationPreservesPreviousAssistantAndRetryUsesSameSnapshot() async throws {
         let responder = ScriptedResponder(outcomes: [
             .success("initial"),
             .success("first answer"),
@@ -158,11 +159,14 @@ final class AiAgentSessionTests: XCTestCase {
         session.retry()
         try await waitUntil { session.errorMessage != nil && !session.isLoading }
 
-        XCTAssertEqual(session.visibleMessages.map(\.content), ["initial", "Q1"])
-        XCTAssertNil(session.lastAssistantContent)
-        XCTAssertFalse(session.sendMessage("Q2"))
-        XCTAssertEqual(session.messages.last?.role, .user)
+        XCTAssertEqual(
+            session.visibleMessages.map(\.content),
+            ["initial", "Q1", "first answer"]
+        )
+        XCTAssertEqual(session.lastAssistantContent, "first answer")
         XCTAssertEqual(responder.requests.count, 3)
+        XCTAssertEqual(responder.requests[2].last?.content, "Q1")
+        XCTAssertFalse(responder.requests[2].contains(where: { $0.content == "first answer" }))
 
         session.retry()
         try await waitUntil {
