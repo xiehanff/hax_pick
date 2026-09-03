@@ -17,7 +17,7 @@ final class PanelSessionViewModelTests: XCTestCase {
         viewModel.handlePrimaryAction(.translate)
         try await waitForPendingRequest(in: responder)
         responder.succeed("result-b")
-        try await waitUntil { viewModel.conversationMessages.count == 1 }
+        try await waitForCompletedAssistant(viewModel, content: "result-b")
 
         XCTAssertEqual(viewModel.selectedText, "selection-b")
         XCTAssertEqual(viewModel.conversationMessages.map(\.content), ["result-b"])
@@ -41,7 +41,7 @@ final class PanelSessionViewModelTests: XCTestCase {
         viewModel.handlePrimaryAction(.explain)
         try await waitForPendingRequest(in: responder)
         responder.succeed("result-b")
-        try await waitUntil { viewModel.conversationMessages.count == 1 }
+        try await waitForCompletedAssistant(viewModel, content: "result-b")
 
         XCTAssertEqual(viewModel.selectedText, "selection-b")
         XCTAssertEqual(viewModel.conversationMessages.map(\.content), ["result-b"])
@@ -57,7 +57,7 @@ final class PanelSessionViewModelTests: XCTestCase {
         try await waitForPendingRequest(in: responder)
 
         responder.succeed("summary")
-        try await waitUntil { viewModel.conversationMessages.count == 1 }
+        try await waitForCompletedAssistant(viewModel, content: "summary")
 
         XCTAssertEqual(viewModel.conversationMessages.first?.content, "summary")
         XCTAssertEqual(viewModel.lastAssistantContent, "summary")
@@ -66,9 +66,9 @@ final class PanelSessionViewModelTests: XCTestCase {
     }
 
     private func makeViewModel(responder: DeferredPanelResponder) -> PanelSessionViewModel {
-        let session = AiAgentSession { messages in
+        let session = AiAgentSession(complete: { messages in
             try await responder.complete(messages)
-        }
+        })
         return PanelSessionViewModel(aiSession: session, onClose: {})
     }
 
@@ -83,8 +83,17 @@ final class PanelSessionViewModelTests: XCTestCase {
         throw TestError.conditionNotMet
     }
 
+    private func waitForCompletedAssistant(
+        _ viewModel: PanelSessionViewModel,
+        content: String
+    ) async throws {
+        try await waitUntil {
+            !viewModel.isLoading && viewModel.lastAssistantContent == content
+        }
+    }
+
     private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<100 {
+        for _ in 0..<200 {
             if condition() {
                 return
             }
