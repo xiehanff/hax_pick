@@ -1,10 +1,31 @@
 import Foundation
 
-protocol DeepSeekHTTPClient {
-    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+protocol DeepSeekStreamingHTTPClient {
+    func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse)
 }
 
-extension URLSession: DeepSeekHTTPClient {}
+extension URLSession: DeepSeekStreamingHTTPClient {
+    func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
+        let (bytes, response) = try await bytes(for: request)
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                do {
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        continuation.yield(line)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+        return (stream, response)
+    }
+}
 
 struct DeepSeekService {
     enum Model: String, CaseIterable, Identifiable {
@@ -20,30 +41,116 @@ struct DeepSeekService {
 
     private let apiKeyProvider: () -> String
     private let modelProvider: () -> Model
-    private let httpClient: any DeepSeekHTTPClient
+    private let streamingClient: any DeepSeekStreamingHTTPClient
 
     init(
         apiKeyProvider: @escaping () -> String,
         modelProvider: @escaping () -> Model,
-        httpClient: any DeepSeekHTTPClient = URLSession.shared
+        streamingClient: any DeepSeekStreamingHTTPClient = URLSession.shared
     ) {
         self.apiKeyProvider = apiKeyProvider
         self.modelProvider = modelProvider
-        self.httpClient = httpClient
+        self.streamingClient = streamingClient
+    }
+
+    func stream(messages: [AiMessage]) -> AsyncThrowingStream<String, Error> {
+        let apiKey = apiKeyProvider()
+        let model = modelProvider()
+        let streamingClient = streamingClient
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    guard !apiKey.isEmpty else {
+                        throw DeepSeekError.missingAPIKey
+                    }
+
+                    let request = try makeRequest(
+                        apiKey: apiKey,
+                        model: model,
+                        messages: messages
+                    )
+                    let (lines, response) = try await streamingClient.lines(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw DeepSeekError.invalidResponse
+                    }
+
+                    guard 200..<300 ~= httpResponse.statusCode else {
+                        var bodyLines: [String] = []
+                        for try await line in lines {
+                            bodyLines.append(line)
+                        }
+                        let body = bodyLines.joined(separator: "\n")
+                        let data = Data(body.utf8)
+                        let message = APIErrorMessageParser.message(from: data)
+                        throw DeepSeekError.requestFailed(
+                            statusCode: httpResponse.statusCode,
+                            message: message
+                        )
+                    }
+
+                    var emittedContent = false
+                    for try await line in lines {
+                        try Task.checkCancellation()
+                        guard let payload = Self.ssePayload(from: line) else {
+                            continue
+                        }
+                        if payload == "[DONE]" {
+                            break
+                        }
+
+                        guard let data = payload.data(using: .utf8) else {
+                            continue
+                        }
+                        let decoded = try JSONDecoder().decode(StreamResponse.self, from: data)
+                        for choice in decoded.choices {
+                            guard let content = choice.delta.content, !content.isEmpty else {
+                                continue
+                            }
+                            emittedContent = true
+                            continuation.yield(content)
+                        }
+                    }
+
+                    guard emittedContent else {
+                        throw DeepSeekError.emptyResult
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
     }
 
     func complete(messages: [AiMessage]) async throws -> String {
-        let apiKey = apiKeyProvider()
-        guard !apiKey.isEmpty else {
-            throw DeepSeekError.missingAPIKey
+        var output = ""
+        for try await chunk in stream(messages: messages) {
+            output += chunk
         }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw DeepSeekError.emptyResult
+        }
+        return trimmed
+    }
 
-        let model = modelProvider()
+    private func makeRequest(
+        apiKey: String,
+        model: Model,
+        messages: [AiMessage]
+    ) throws -> URLRequest {
         let requestBody = ChatRequest(
             model: model.rawValue,
             messages: messages.map {
                 ChatMessage(role: $0.role.rawValue, content: $0.content)
-            }
+            },
+            stream: true
         )
 
         var request = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
@@ -52,28 +159,13 @@ struct DeepSeekService {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(requestBody)
         request.timeoutInterval = 45
+        return request
+    }
 
-        let (data, response) = try await httpClient.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DeepSeekError.invalidResponse
-        }
-
-        guard 200..<300 ~= httpResponse.statusCode else {
-            let message = APIErrorMessageParser.message(from: data)
-            throw DeepSeekError.requestFailed(
-                statusCode: httpResponse.statusCode,
-                message: message
-            )
-        }
-
-        let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
-        guard let content = decoded.choices.first?.message.content
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !content.isEmpty else {
-            throw DeepSeekError.emptyResult
-        }
-        return content
+    private static func ssePayload(from line: String) -> String? {
+        guard line.hasPrefix("data:") else { return nil }
+        return String(line.dropFirst(5))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -130,6 +222,7 @@ enum DeepSeekError: LocalizedError {
 private struct ChatRequest: Encodable {
     let model: String
     let messages: [ChatMessage]
+    let stream: Bool
 }
 
 private struct ChatMessage: Codable {
@@ -137,11 +230,15 @@ private struct ChatMessage: Codable {
     let content: String
 }
 
-private struct ChatResponse: Decodable {
+private struct StreamResponse: Decodable {
     let choices: [Choice]
 
     struct Choice: Decodable {
-        let message: ChatMessage
+        let delta: Delta
+    }
+
+    struct Delta: Decodable {
+        let content: String?
     }
 }
 
