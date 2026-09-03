@@ -2,6 +2,12 @@ import SwiftUI
 
 struct AiMessageBubble: View {
     let message: AiMessage
+    let isStreaming: Bool
+
+    init(message: AiMessage, isStreaming: Bool = false) {
+        self.message = message
+        self.isStreaming = isStreaming
+    }
 
     @ViewBuilder
     var body: some View {
@@ -23,10 +29,21 @@ struct AiMessageBubble: View {
                     AppBrandIcon(size: 20)
                         .opacity(0.7)
 
-                    MarkdownWithCodeBlocks(text: message.content)
-                        .padding(12)
-                        .background(AppTheme.mutedBg)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Group {
+                        if isStreaming {
+                            Text(message.content)
+                                .font(.system(size: 14))
+                                .foregroundColor(AppTheme.textPrimary)
+                                .lineSpacing(5)
+                                .textSelection(.enabled)
+                        } else {
+                            MarkdownWithCodeBlocks(text: message.content)
+                        }
+                    }
+                    .padding(12)
+                    .background(AppTheme.mutedBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
                     Spacer(minLength: 12)
                 }
             }

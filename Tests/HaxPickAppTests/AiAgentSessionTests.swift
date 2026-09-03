@@ -65,6 +65,37 @@ final class AiAgentSessionTests: XCTestCase {
         try await waitForCompletedAssistant(session, content: "AB")
     }
 
+    func testStreamingAssistantIDOnlyMarksAnActualPublishedDraft() async throws {
+        let responder = DeferredStreamResponder()
+        let session = AiAgentSession(stream: { responder.stream($0) }, publishIntervalNanoseconds: 0)
+
+        session.runToolAction(.explain, sourceText: "source")
+        try await waitUntil { responder.hasPendingStream }
+        XCTAssertNil(session.streamingAssistantID)
+
+        responder.yield("A0")
+        try await waitUntil { session.lastAssistantContent == "A0" }
+        let assistantID = try XCTUnwrap(session.visibleMessages.last?.id)
+        XCTAssertEqual(session.streamingAssistantID, assistantID)
+
+        responder.finish()
+        try await waitForCompletedAssistant(session, content: "A0")
+        XCTAssertNil(session.streamingAssistantID)
+
+        session.retry()
+        try await waitUntil { responder.hasPendingStream }
+        XCTAssertEqual(session.lastAssistantContent, "A0")
+        XCTAssertNil(session.streamingAssistantID)
+
+        responder.yield("A0-new-partial")
+        try await waitUntil { session.lastAssistantContent == "A0-new-partial" }
+        XCTAssertEqual(session.streamingAssistantID, assistantID)
+
+        responder.finish()
+        try await waitForCompletedAssistant(session, content: "A0-new-partial")
+        XCTAssertNil(session.streamingAssistantID)
+    }
+
     func testStreamingFailureAfterPartialRollsBackDraftAndAllowsRetry() async throws {
         let responder = DeferredStreamResponder()
         let session = AiAgentSession(stream: { responder.stream($0) }, publishIntervalNanoseconds: 0)

@@ -35,6 +35,7 @@ final class PanelSessionViewModel: ObservableObject {
     var currentAction: AiToolAction? { aiSession.currentAction }
     var conversationMessages: [AiMessage] { aiSession.visibleMessages }
     var lastAssistantContent: String? { aiSession.lastAssistantContent }
+    var streamingAssistantID: UUID? { aiSession.streamingAssistantID }
     var isLoading: Bool { aiSession.isLoading }
     var errorMessage: String? { aiSession.errorMessage }
     var didStop: Bool { aiSession.didStop }

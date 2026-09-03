@@ -98,7 +98,10 @@ struct ResultPanelView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
                         ForEach(viewModel.conversationMessages) { message in
-                            AiMessageBubble(message: message)
+                            AiMessageBubble(
+                                message: message,
+                                isStreaming: message.id == viewModel.streamingAssistantID
+                            )
                         }
 
                         if let errorMessage = viewModel.errorMessage {
