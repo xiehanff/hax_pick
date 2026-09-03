@@ -13,6 +13,12 @@ final class AiAgentSession: ObservableObject {
     private enum RetryPlan {
         case currentContext
         case appendUser(String)
+        case regenerate(requestMessages: [AiMessage], replacingAssistantID: UUID)
+    }
+
+    private enum SuccessCommit {
+        case appendAssistant
+        case replaceAssistant(UUID)
     }
 
     private let complete: Complete
@@ -115,6 +121,17 @@ final class AiAgentSession: ObservableObject {
                     rollbackUserID: userMessage.id,
                     failurePlan: .appendUser(text)
                 )
+            case .regenerate(let requestMessages, let replacingAssistantID):
+                let plan = RetryPlan.regenerate(
+                    requestMessages: requestMessages,
+                    replacingAssistantID: replacingAssistantID
+                )
+                startRequest(
+                    requestMessages: requestMessages,
+                    rollbackUserID: nil,
+                    failurePlan: plan,
+                    successCommit: .replaceAssistant(replacingAssistantID)
+                )
             }
             return
         }
@@ -129,18 +146,29 @@ final class AiAgentSession: ObservableObject {
             return
         }
 
-        messages.removeLast()
-        startRequest(rollbackUserID: nil, failurePlan: .currentContext)
+        let requestMessages = Array(messages.dropLast())
+        let plan = RetryPlan.regenerate(
+            requestMessages: requestMessages,
+            replacingAssistantID: lastMessage.id
+        )
+        startRequest(
+            requestMessages: requestMessages,
+            rollbackUserID: nil,
+            failurePlan: plan,
+            successCommit: .replaceAssistant(lastMessage.id)
+        )
     }
 
     private func startRequest(
+        requestMessages explicitRequestMessages: [AiMessage]? = nil,
         rollbackUserID: UUID?,
-        failurePlan: RetryPlan
+        failurePlan: RetryPlan,
+        successCommit: SuccessCommit = .appendAssistant
     ) {
         guard !isLoading else { return }
 
         let requestGeneration = generation
-        let requestMessages = messages
+        let requestMessages = explicitRequestMessages ?? messages
         let performer = complete
 
         isLoading = true
@@ -156,9 +184,24 @@ final class AiAgentSession: ObservableObject {
                     return
                 }
 
-                self.messages.append(
-                    AiMessage(role: .assistant, content: output)
-                )
+                switch successCommit {
+                case .appendAssistant:
+                    self.messages.append(
+                        AiMessage(role: .assistant, content: output)
+                    )
+                case .replaceAssistant(let assistantID):
+                    let replacement = AiMessage(
+                        id: assistantID,
+                        role: .assistant,
+                        content: output
+                    )
+                    if let index = self.messages.firstIndex(where: { $0.id == assistantID }) {
+                        self.messages[index] = replacement
+                    } else {
+                        self.messages.append(replacement)
+                    }
+                }
+
                 self.isLoading = false
                 self.currentTask = nil
                 self.errorMessage = nil
