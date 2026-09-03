@@ -12,6 +12,8 @@ final class AiAgentSession: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var didStop = false
 
+    private(set) var draftPublishCount = 0
+
     private enum RetryPlan {
         case currentContext
         case appendUser(String)
@@ -262,6 +264,7 @@ final class AiAgentSession: ObservableObject {
         )
         activeRequest = request
         activeDraftContent = ""
+        draftPublishCount = 0
         isLoading = true
         errorMessage = nil
         didStop = false
@@ -338,6 +341,8 @@ final class AiAgentSession: ObservableObject {
         content: String,
         originalAssistant: AiMessage?
     ) {
+        draftPublishCount += 1
+
         let updated = AiMessage(
             id: assistantID,
             role: .assistant,
