@@ -4,141 +4,179 @@ import XCTest
 
 @MainActor
 final class SelectionMonitorTests: XCTestCase {
-    func testResolveSelectionSnapshotReturnsAccessibilityResultFirst() async {
-        let expected = TextSelectionSnapshot(
-            text: "from-ax",
-            anchorPoint: NSPoint(x: 30, y: 40)
-        )
-        let monitor = SelectionMonitor(
-            onSelectionDetected: { _ in },
-            onSelectionMissed: {},
-            focusedElementSnapshotProvider: { nil },
-            accessibilitySnapshotProvider: { _, _, _ in expected },
-            shouldAttemptClipboardFallbackProvider: { _ in false },
-            clipboardFallbackProvider: { "from-clipboard" }
+    private let startPoint = NSPoint(x: 10, y: 20)
+    private let endPoint = NSPoint(x: 50, y: 60)
+
+    func testMouseDragPublishesSelectionBeforeMouseUp() async {
+        let detected = expectation(description: "selection detected while dragging")
+        var detectedText: String?
+        let monitor = makeMonitor(
+            onSelectionDetected: {
+                detectedText = $0.text
+                detected.fulfill()
+            },
+            shouldAttemptClipboardFallback: { _, _ in true },
+            earlyClipboardFallback: { "first-word" }
         )
 
-        let snapshot = await monitor.resolveSelectionSnapshot(
-            focusedElement: nil,
-            dragStartPoint: NSPoint(x: 10, y: 20),
-            releasePoint: NSPoint(x: 50, y: 60)
-        )
+        monitor.handleMouseDown(at: startPoint)
+        monitor.handleMouseDragged(to: endPoint)
 
-        XCTAssertEqual(snapshot?.text, "from-ax")
-        XCTAssertEqual(snapshot?.anchorPoint, expected.anchorPoint)
+        await fulfillment(of: [detected], timeout: 1)
+        XCTAssertEqual(detectedText, "first-word")
+        monitor.stop()
     }
 
-    func testResolveSelectionSnapshotReturnsNilWhenFallbackIsDisallowed() async {
-        let monitor = SelectionMonitor(
-            onSelectionDetected: { _ in },
-            onSelectionMissed: {},
-            focusedElementSnapshotProvider: { nil },
-            accessibilitySnapshotProvider: { _, _, _ in nil },
-            shouldAttemptClipboardFallbackProvider: { _ in false },
-            clipboardFallbackProvider: { "from-clipboard" }
+    func testFinalSelectionPrefersAccessibility() async {
+        let expected = snapshot("from-ax")
+        let monitor = makeMonitor(
+            accessibilitySnapshot: { _, _, _ in expected },
+            shouldAttemptClipboardFallback: { _, _ in true },
+            clipboardFallback: { "from-clipboard" }
         )
 
-        let snapshot = await monitor.resolveSelectionSnapshot(
-            focusedElement: nil,
-            dragStartPoint: NSPoint(x: 0, y: 0),
-            releasePoint: NSPoint(x: 20, y: 20)
-        )
+        let result = await resolveFinalSelection(with: monitor)
 
-        XCTAssertNil(snapshot)
+        XCTAssertEqual(result?.text, expected.text)
+        XCTAssertEqual(result?.anchorPoint, expected.anchorPoint)
     }
 
-    func testResolveSelectionSnapshotUsesClipboardFallbackWhenAllowed() async {
-        let dragStartPoint = NSPoint(x: 10, y: 20)
-        let releasePoint = NSPoint(x: 30, y: 60)
-        let expectedAnchorPoint = dragStartPoint.midpoint(to: releasePoint)
-        let monitor = SelectionMonitor(
-            onSelectionDetected: { _ in },
-            onSelectionMissed: {},
-            focusedElementSnapshotProvider: { nil },
-            accessibilitySnapshotProvider: { _, _, _ in nil },
-            shouldAttemptClipboardFallbackProvider: { _ in true },
-            clipboardFallbackProvider: { "from-clipboard" }
+    func testFinalSelectionUsesClipboardWhenAllowed() async {
+        let monitor = makeMonitor(
+            shouldAttemptClipboardFallback: { _, _ in true },
+            clipboardFallback: { "from-clipboard" }
         )
 
-        let snapshot = await monitor.resolveSelectionSnapshot(
-            focusedElement: nil,
-            dragStartPoint: dragStartPoint,
-            releasePoint: releasePoint
-        )
+        let result = await resolveFinalSelection(with: monitor)
 
-        XCTAssertEqual(snapshot?.text, "from-clipboard")
-        XCTAssertEqual(snapshot?.anchorPoint, expectedAnchorPoint)
+        XCTAssertEqual(result?.text, "from-clipboard")
+        XCTAssertEqual(result?.anchorPoint, startPoint.midpoint(to: endPoint))
     }
 
-    func testResolveSelectionSnapshotReturnsNilWhenClipboardFallbackFails() async {
-        let monitor = SelectionMonitor(
-            onSelectionDetected: { _ in },
-            onSelectionMissed: {},
-            focusedElementSnapshotProvider: { nil },
-            accessibilitySnapshotProvider: { _, _, _ in nil },
-            shouldAttemptClipboardFallbackProvider: { _ in true },
-            clipboardFallbackProvider: { nil }
-        )
+    func testFinalSelectionReturnsNilWhenFallbackUnavailable() async {
+        let scenarios: [(allowed: Bool, clipboardText: String?)] = [
+            (false, "unreachable"),
+            (true, nil),
+        ]
 
-        let snapshot = await monitor.resolveSelectionSnapshot(
-            focusedElement: nil,
-            dragStartPoint: NSPoint(x: 5, y: 5),
-            releasePoint: NSPoint(x: 15, y: 25)
-        )
-
-        XCTAssertNil(snapshot)
+        for scenario in scenarios {
+            let monitor = makeMonitor(
+                shouldAttemptClipboardFallback: { _, _ in scenario.allowed },
+                clipboardFallback: { scenario.clipboardText }
+            )
+            let result = await resolveFinalSelection(with: monitor)
+            XCTAssertNil(result)
+        }
     }
 
-    func testResolveSelectionSnapshotUsesCapturedFocusedElementForFallbackDecision() async {
-        var receivedFocusedElement: AXUIElement?
+    func testFinalSelectionUsesCapturedFocusedElement() async {
         let focusedElement = AXUIElementCreateSystemWide()
-        let monitor = SelectionMonitor(
-            onSelectionDetected: { _ in },
-            onSelectionMissed: {},
-            focusedElementSnapshotProvider: { focusedElement },
-            accessibilitySnapshotProvider: { element, _, _ in
-                receivedFocusedElement = element
+        var receivedElement: AXUIElement?
+        let monitor = makeMonitor(
+            accessibilitySnapshot: { element, _, _ in
+                receivedElement = element
                 return nil
             },
-            shouldAttemptClipboardFallbackProvider: { element in
-                receivedFocusedElement = element
+            shouldAttemptClipboardFallback: { element, _ in
+                receivedElement = element
                 return element != nil
             },
-            clipboardFallbackProvider: { "from-clipboard" }
+            clipboardFallback: { "from-clipboard" }
         )
 
-        let snapshot = await monitor.resolveSelectionSnapshot(
+        let result = await monitor.resolveSelectionSnapshot(
             focusedElement: focusedElement,
-            dragStartPoint: NSPoint(x: 10, y: 10),
-            releasePoint: NSPoint(x: 30, y: 30)
+            dragStartPoint: startPoint,
+            releasePoint: endPoint
         )
 
-        XCTAssertNotNil(receivedFocusedElement)
-        XCTAssertEqual(snapshot?.text, "from-clipboard")
+        XCTAssertNotNil(receivedElement)
+        XCTAssertEqual(result?.text, "from-clipboard")
     }
 
-    func testResolveSelectionSnapshotFallsBackToEarlyAccessibilitySnapshot() async {
-        let earlySnapshot = TextSelectionSnapshot(
-            text: "early-selection",
-            anchorPoint: NSPoint(x: 12, y: 34)
+    func testFinalSelectionFallsBackToEarlyAccessibilitySnapshot() async {
+        let expected = snapshot("early-selection")
+        let result = await makeMonitor().resolveSelectionSnapshot(
+            earlyAccessibilitySnapshot: expected,
+            dragStartPoint: startPoint,
+            releasePoint: endPoint
         )
-        let monitor = SelectionMonitor(
-            onSelectionDetected: { _ in },
+
+        XCTAssertEqual(result?.text, expected.text)
+        XCTAssertEqual(result?.anchorPoint, expected.anchorPoint)
+    }
+
+    func testDragSelectionUsesFastClipboardPath() async {
+        var fallbackPoint: NSPoint?
+        var usedFinalFallback = false
+        let monitor = makeMonitor(
+            shouldAttemptClipboardFallback: { _, point in
+                fallbackPoint = point
+                return true
+            },
+            clipboardFallback: {
+                usedFinalFallback = true
+                return "final-selection"
+            },
+            earlyClipboardFallback: { "selection-in-progress" }
+        )
+
+        let result = await monitor.resolveSelectionDuringDrag(
+            focusedElement: nil,
+            dragStartPoint: startPoint,
+            currentPoint: endPoint
+        )
+
+        XCTAssertEqual(result?.text, "selection-in-progress")
+        XCTAssertEqual(result?.anchorPoint, startPoint.midpoint(to: endPoint))
+        XCTAssertEqual(fallbackPoint, endPoint)
+        XCTAssertFalse(usedFinalFallback)
+    }
+
+    func testDragSelectionPrefersAccessibility() async {
+        let expected = snapshot("first-word")
+        let monitor = makeMonitor(
+            accessibilitySnapshot: { _, _, _ in expected },
+            shouldAttemptClipboardFallback: { _, _ in true },
+            earlyClipboardFallback: { "clipboard-selection" }
+        )
+
+        let result = await monitor.resolveSelectionDuringDrag(
+            focusedElement: nil,
+            dragStartPoint: startPoint,
+            currentPoint: endPoint
+        )
+
+        XCTAssertEqual(result?.text, expected.text)
+        XCTAssertEqual(result?.anchorPoint, expected.anchorPoint)
+    }
+
+    private func resolveFinalSelection(with monitor: SelectionMonitor) async -> TextSelectionSnapshot? {
+        await monitor.resolveSelectionSnapshot(
+            dragStartPoint: startPoint,
+            releasePoint: endPoint
+        )
+    }
+
+    private func snapshot(_ text: String) -> TextSelectionSnapshot {
+        TextSelectionSnapshot(text: text, anchorPoint: NSPoint(x: 30, y: 40))
+    }
+
+    private func makeMonitor(
+        onSelectionDetected: @escaping (TextSelectionSnapshot) -> Void = { _ in },
+        accessibilitySnapshot: @escaping (AXUIElement?, NSPoint, NSPoint) -> TextSelectionSnapshot? = { _, _, _ in nil },
+        shouldAttemptClipboardFallback: @escaping (AXUIElement?, NSPoint) -> Bool = { _, _ in false },
+        clipboardFallback: @escaping () async -> String? = { nil },
+        earlyClipboardFallback: (() async -> String?)? = nil
+    ) -> SelectionMonitor {
+        SelectionMonitor(
+            onSelectionDetected: onSelectionDetected,
             onSelectionMissed: {},
             focusedElementSnapshotProvider: { nil },
-            accessibilitySnapshotProvider: { _, _, _ in nil },
-            shouldAttemptClipboardFallbackProvider: { _ in false },
-            clipboardFallbackProvider: { nil }
+            accessibilitySnapshotProvider: accessibilitySnapshot,
+            shouldAttemptClipboardFallbackProvider: shouldAttemptClipboardFallback,
+            clipboardFallbackProvider: clipboardFallback,
+            earlyClipboardFallbackProvider: earlyClipboardFallback
         )
-
-        let snapshot = await monitor.resolveSelectionSnapshot(
-            earlyAccessibilitySnapshot: earlySnapshot,
-            focusedElement: nil,
-            dragStartPoint: NSPoint(x: 10, y: 20),
-            releasePoint: NSPoint(x: 30, y: 40)
-        )
-
-        XCTAssertEqual(snapshot?.text, "early-selection")
-        XCTAssertEqual(snapshot?.anchorPoint, earlySnapshot.anchorPoint)
     }
 }

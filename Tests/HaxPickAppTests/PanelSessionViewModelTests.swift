@@ -3,6 +3,13 @@ import XCTest
 
 @MainActor
 final class PanelSessionViewModelTests: XCTestCase {
+    func testToolbarExposesOnlyMVPPrimaryActions() {
+        XCTAssertEqual(
+            AiToolAction.primaryActions.map(\.rawValue),
+            [AiToolAction.translate.rawValue, AiToolAction.explain.rawValue]
+        )
+    }
+
     func testResetDiscardsLateResultFromPreviousSelection() async throws {
         let responder = DeferredPanelResponder()
         let viewModel = makeViewModel(responder: responder)

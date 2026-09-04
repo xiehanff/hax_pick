@@ -7,29 +7,64 @@ struct FloatingToolbarView: View {
         Group {
             switch viewModel.mode {
             case .toolbar:
-                toolbarView
+                HaxGlassSurface(style: .dark, cornerRadius: AppTheme.toolbarCorner) {
+                    toolbarView
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.16))
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: AppTheme.toolbarCorner - 3,
+                                style: .continuous
+                            )
+                        )
+                        .compositingGroup()
+                        .overlay {
+                            RoundedRectangle(
+                                cornerRadius: AppTheme.toolbarCorner - 3,
+                                style: .continuous
+                            )
+                            .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
+                        }
+                        .padding(3)
+                }
+                .frame(
+                    width: FloatingPanelLayout.toolbarSize.width,
+                    height: FloatingPanelLayout.toolbarSize.height
+                )
             case .result:
-                ResultPanelView(viewModel: viewModel)
+                HaxGlassSurface(style: .light, cornerRadius: AppTheme.resultCorner) {
+                    ResultPanelView(viewModel: viewModel)
+                        .padding(AppTheme.glassContentInset)
+                }
             }
         }
-        .padding(viewModel.mode == .toolbar ? 10 : 18)
-        .frame(
-            width: viewModel.mode == .toolbar
-                ? FloatingPanelLayout.toolbarSize.width
-                : FloatingPanelLayout.resultSize.width
-        )
-        .background(AppTheme.background)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous)
-                .stroke(AppTheme.border, lineWidth: 1)
-        )
         .environment(\.colorScheme, .light)
     }
 
     private var toolbarView: some View {
-        HStack(spacing: 4) {
-            dragHandleView
+        HStack(spacing: 5) {
+            AppBrandIcon(size: 32)
+
+            Text("已选中 \(viewModel.selectedText.count) 个字符")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.72))
+                .lineLimit(1)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.16))
+                .frame(width: 1, height: 20)
+
+            Button {
+                viewModel.handlePrimaryAction(.copy)
+            } label: {
+                Image(systemName: AiToolAction.copy.symbolName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.88))
+                    .frame(width: 26, height: 32)
+            }
+            .buttonStyle(.plain)
+            .help("复制原文")
 
             ForEach(AiToolAction.primaryActions) { action in
                 Button {
@@ -37,29 +72,13 @@ struct FloatingToolbarView: View {
                 } label: {
                     CapsuleToolButton(
                         title: action.rawValue,
-                        icon: action.symbolName
+                        icon: action.symbolName,
+                        isSelected: action == .translate
                     )
                 }
                 .buttonStyle(.plain)
             }
         }
-        .frame(height: 32)
-    }
-
-    private var dragHandleView: some View {
-        VStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { _ in
-                HStack(spacing: 2) {
-                    ForEach(0..<3, id: \.self) { _ in
-                        Circle()
-                            .fill(AppTheme.textSecondary)
-                            .frame(width: 3, height: 3)
-                    }
-                }
-            }
-        }
-        .padding(.leading, 2)
-        .frame(width: 16, height: 16)
-        .help("可拖动面板位置")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

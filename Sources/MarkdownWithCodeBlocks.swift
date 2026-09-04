@@ -76,14 +76,14 @@ struct MarkdownWithCodeBlocks: View {
     private func renderParagraph(_ text: String) -> some View {
         if let md = try? AttributedString(markdown: text) {
             Text(md)
-                .font(.system(size: 14))
+                .font(.system(size: 13))
                 .foregroundColor(AppTheme.textPrimary)
-                .lineSpacing(5)
+                .lineSpacing(4)
         } else {
             Text(text)
-                .font(.system(size: 14))
+                .font(.system(size: 13))
                 .foregroundColor(AppTheme.textPrimary)
-                .lineSpacing(5)
+                .lineSpacing(4)
         }
     }
 

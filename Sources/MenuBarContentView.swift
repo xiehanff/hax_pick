@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarContentView: View {
@@ -6,24 +7,55 @@ struct MenuBarContentView: View {
     @State private var apiKeyDraft = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider().padding(.vertical, 14)
+        HaxGlassSurface(style: .light, cornerRadius: AppTheme.menuCorner) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
 
-            permissionSection
-                .padding(.bottom, 12)
+                SoftDivider(horizontalInset: 12)
 
-            apiKeySection
-                .padding(.bottom, 12)
+                permissionSection
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
 
-            modelSection
-                .padding(.bottom, 16)
+                SoftDivider(horizontalInset: 12)
 
-            bottomActions
+                apiKeySection
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+
+                SoftDivider(horizontalInset: 12)
+
+                modelSection
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+
+                SoftDivider(horizontalInset: 12)
+
+                bottomActions
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+            }
+            .frame(width: 304)
+            .background(AppTheme.panelContent)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: AppTheme.menuCorner - 8,
+                    style: .continuous
+                )
+            )
+            .compositingGroup()
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: AppTheme.menuCorner - 8,
+                    style: .continuous
+                )
+                .stroke(Color.white.opacity(0.76), lineWidth: 0.75)
+            }
+            .padding(8)
         }
-        .padding(16)
-        .frame(width: 340)
-        .background(AppTheme.background)
+        .frame(width: 320)
         .environment(\.colorScheme, .light)
         .onAppear {
             apiKeyDraft = appState.apiKey
@@ -31,207 +63,223 @@ struct MenuBarContentView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
-                AppBrandIcon(size: 32)
+        HStack(spacing: 10) {
+            AppBrandIcon(size: 30)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("HaxPick")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(AppTheme.textPrimary)
+
+                Text(appState.statusMessage)
+                    .font(.system(size: 10.5))
+                    .foregroundColor(AppTheme.textSecondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 10)
+
+            Circle()
+                .fill(appState.permissionGranted ? AppTheme.success : Color.orange)
+                .frame(width: 7, height: 7)
+                .accessibilityLabel(appState.permissionGranted ? "运行正常" : "需要辅助功能权限")
+        }
+    }
+
+    private var permissionSection: some View {
+        VStack(alignment: .leading, spacing: appState.permissionGranted ? 0 : 9) {
+            HStack(spacing: 9) {
+                Image(systemName: "hand.raised")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(AppTheme.textSecondary)
+                    .frame(width: 18)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("HaxPick")
-                        .font(.system(size: 15, weight: .bold))
+                    Text("辅助功能")
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(AppTheme.textPrimary)
-                    Text("划词助手")
-                        .font(.system(size: 11, weight: .medium))
+                    Text(appState.permissionGranted ? "已开启，可监听全局划词" : "开启后才能读取选中的文本")
+                        .font(.system(size: 10.5))
                         .foregroundColor(AppTheme.textSecondary)
                 }
 
                 Spacer()
 
-                Circle()
-                    .fill(appState.permissionGranted ? AppTheme.success : Color.orange)
-                    .frame(width: 8, height: 8)
+                Text(appState.permissionGranted ? "已开启" : "未开启")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundColor(appState.permissionGranted ? AppTheme.success : Color.orange)
+
+                Button {
+                    appState.refreshPermissionStatus()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10, weight: .medium))
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(AppTheme.textSecondary)
+                .help("刷新权限状态")
             }
 
-            Text(appState.statusMessage)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(AppTheme.textSecondary)
-                .padding(.top, 8)
-        }
-    }
-
-    private var permissionSection: some View {
-        cardSection(title: "权限") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label("辅助功能", systemImage: "hand.raised")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(AppTheme.textPrimary)
-                    Spacer()
-                    Text(appState.permissionGranted ? "已开启" : "未开启")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(appState.permissionGranted ? AppTheme.success : Color.orange)
+            if !appState.permissionGranted {
+                Button("开启辅助功能") {
+                    appState.showPermissionGuide()
                 }
-
-                Text("开启后可监听全局划词并弹出工具栏。")
-                    .font(.system(size: 11))
-                    .foregroundColor(AppTheme.textSecondary)
-                    .lineSpacing(3)
-
-                HStack(spacing: 8) {
-                    Button("去开启") {
-                        appState.showPermissionGuide()
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-
-                    Button("刷新") {
-                        appState.refreshPermissionStatus()
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(AppTheme.accent)
+                .padding(.leading, 27)
             }
         }
     }
 
     private var apiKeySection: some View {
-        cardSection(title: "API Key") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("DEEPSEEK API KEY")
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundColor(AppTheme.textSecondary)
+                .tracking(0.5)
+
+            HStack(spacing: 7) {
+                HStack(spacing: 4) {
                     Group {
                         if apiKeyVisible {
-                            TextField("输入 DeepSeek API Key", text: $apiKeyDraft)
+                            TextField("输入 API Key", text: $apiKeyDraft)
                         } else {
-                            SecureField("输入 DeepSeek API Key", text: $apiKeyDraft)
+                            SecureField("输入 API Key", text: $apiKeyDraft)
                         }
                     }
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11.5))
                     .foregroundColor(AppTheme.textPrimary)
 
                     Button {
                         apiKeyVisible.toggle()
                     } label: {
                         Image(systemName: apiKeyVisible ? "eye.slash" : "eye")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundColor(AppTheme.textSecondary)
-                            .frame(width: 24, height: 24)
+                            .frame(width: 20, height: 20)
                     }
                     .buttonStyle(.plain)
                     .help(apiKeyVisible ? "隐藏 API Key" : "显示 API Key")
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(AppTheme.cardBg)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .padding(.leading, 9)
+                .padding(.trailing, 4)
+                .frame(height: 30)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .stroke(AppTheme.border, lineWidth: 1)
-                )
-
-                if let apiKeyStorageError = appState.apiKeyStorageError {
-                    Text(apiKeyStorageError)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text(appState.apiKeyStorageStatusMessage)
-                        .font(.system(size: 10, weight: appState.apiKeyStorageNeedsAttention ? .medium : .regular))
-                        .foregroundColor(appState.apiKeyStorageNeedsAttention ? .orange : AppTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                HStack(spacing: 8) {
-                    Spacer()
-
-                    if appState.canRetryAPIKeyStorage {
-                        Button("重试") {
-                            let committedBeforeRetry = appState.apiKey
-                            let draftWasUnmodified = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines) == committedBeforeRetry
-                            _ = appState.retryAPIKeyStorage()
-                            if draftWasUnmodified {
-                                apiKeyDraft = appState.apiKey
-                            }
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
+                if appState.canRetryAPIKeyStorage {
+                    Button("重试") {
+                        retryAPIKeyStorage()
                     }
-
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else {
                     Button("保存") {
-                        if appState.saveAPIKey(apiKeyDraft) {
-                            apiKeyDraft = appState.apiKey
-                        }
+                        saveAPIKey()
                     }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .disabled(
-                        apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines) == appState.apiKey &&
-                        appState.apiKeyStorageError == nil
-                    )
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!hasAPIKeyChanges && appState.apiKeyStorageError == nil)
                 }
             }
+
+            Text(apiKeyStatusMessage)
+                .font(.system(size: 9.5))
+                .foregroundColor(apiKeyStatusColor)
+                .lineLimit(2)
         }
     }
 
     private var modelSection: some View {
-        cardSection(title: "模型") {
-            HStack(spacing: 0) {
+        HStack(spacing: 10) {
+            Image(systemName: "cpu")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(AppTheme.textSecondary)
+                .frame(width: 18)
+
+            Text("模型")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(AppTheme.textPrimary)
+
+            Spacer()
+
+            Picker("模型", selection: $appState.selectedModel) {
                 ForEach(appState.availableModels()) { model in
-                    Button {
-                        appState.selectedModel = model
-                    } label: {
-                        Text(model.displayName)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(appState.selectedModel == model ? .white : AppTheme.textSecondary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 30)
-                            .background(
-                                appState.selectedModel == model
-                                    ? AppTheme.accent
-                                    : Color.clear
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
+                    Text(model.displayName).tag(model)
                 }
             }
-            .padding(3)
-            .background(AppTheme.mutedBg)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(AppTheme.border, lineWidth: 1)
-            )
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .frame(width: 148)
         }
     }
 
     private var bottomActions: some View {
-        HStack(spacing: 8) {
-            Button("系统设置") {
-                appState.openAccessibilitySettings()
-            }
-            .buttonStyle(SecondaryButtonStyle())
+        HStack(spacing: 4) {
+            Text("v\(appState.appVersion)")
+                .font(.system(size: 9.5))
+                .foregroundColor(AppTheme.textSecondary.opacity(0.82))
 
             Spacer()
+
+            Button {
+                appState.openAccessibilitySettings()
+            } label: {
+                Label("系统设置", systemImage: "gearshape")
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 10.5))
+            .foregroundColor(AppTheme.textSecondary)
+
+            Rectangle()
+                .fill(Color.black.opacity(0.07))
+                .frame(width: 0.5, height: 13)
+                .padding(.horizontal, 5)
 
             Button("退出") {
                 appState.quitApp()
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(.plain)
+            .font(.system(size: 10.5))
+            .foregroundColor(AppTheme.textSecondary)
             .keyboardShortcut(.cancelAction)
         }
     }
 
-    @ViewBuilder
-    private func cardSection(title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(AppTheme.textSecondary)
-                .tracking(0.5)
-            content()
+    private var hasAPIKeyChanges: Bool {
+        apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines) != appState.apiKey
+    }
+
+    private var apiKeyStatusMessage: String {
+        appState.apiKeyStorageError ?? appState.apiKeyStorageStatusMessage
+    }
+
+    private var apiKeyStatusColor: Color {
+        appState.apiKeyStorageError != nil || appState.apiKeyStorageNeedsAttention
+            ? .orange
+            : AppTheme.textSecondary
+    }
+
+    private func saveAPIKey() {
+        if appState.saveAPIKey(apiKeyDraft) {
+            apiKeyDraft = appState.apiKey
         }
-        .padding(12)
-        .background(AppTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(AppTheme.border, lineWidth: 1)
-        )
+    }
+
+    private func retryAPIKeyStorage() {
+        let committedBeforeRetry = appState.apiKey
+        let draftWasUnmodified = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines) == committedBeforeRetry
+        _ = appState.retryAPIKeyStorage()
+        if draftWasUnmodified {
+            apiKeyDraft = appState.apiKey
+        }
     }
 }

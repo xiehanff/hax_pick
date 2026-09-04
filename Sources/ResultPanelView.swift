@@ -8,37 +8,83 @@ struct ResultPanelView: View {
     @State private var followTailState = ChatFollowTailState()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 0) {
             headerRow
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+
+            SoftDivider()
+
             sourceTextSection
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+
+            SoftDivider()
+
             resultContentSection
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
+
             actionButtonsRow
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+
             if viewModel.lastAssistantContent != nil && !viewModel.isLoading {
+                SoftDivider(horizontalInset: 14)
                 AiChatInputBar(viewModel: viewModel)
             }
         }
-        .frame(width: 404)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.panelContent)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: AppTheme.resultCorner - AppTheme.glassContentInset,
+                style: .continuous
+            )
+        )
+        .compositingGroup()
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: AppTheme.resultCorner - AppTheme.glassContentInset,
+                style: .continuous
+            )
+            .stroke(Color.white.opacity(0.78), lineWidth: 0.75)
+        }
     }
 
     private var headerRow: some View {
         HStack(spacing: 10) {
-            AppBrandIcon(size: 28)
+            AppBrandIcon(size: 32)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(viewModel.titleText)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(AppTheme.textPrimary)
-                Text(viewModel.statusHint)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(AppTheme.textSecondary)
+
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 6, height: 6)
+                    Text(viewModel.statusHint)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary)
+                }
             }
 
             Spacer()
 
-            Button("关闭") {
+            Button {
                 viewModel.close()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppTheme.textSecondary)
+                    .frame(width: 28, height: 28)
+                    .background(AppTheme.mutedBg)
+                    .clipShape(Circle())
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(.plain)
+            .help("关闭")
         }
     }
 
@@ -46,48 +92,47 @@ struct ResultPanelView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("原文")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(AppTheme.textSecondary)
-                    .tracking(0.5)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppTheme.textPrimary)
                 Spacer()
-                Button("复制原文") {
+                Button {
                     viewModel.copyOriginalText()
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(AppTheme.textSecondary)
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(.plain)
+                .help("复制原文")
             }
 
-            ScrollView {
-                Text(viewModel.selectedText)
-                    .font(.system(size: 13))
-                    .foregroundColor(AppTheme.textSecondary)
-                    .lineSpacing(4)
-                    .lineLimit(viewModel.isOriginalExpanded ? nil : 2)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if viewModel.isOriginalExpanded {
+                ScrollView {
+                    sourceText
+                }
+                .frame(maxHeight: 112)
+            } else {
+                sourceText
+                    .lineLimit(3)
             }
-            .frame(height: viewModel.isOriginalExpanded ? 100 : 42)
 
             if viewModel.selectedText.count > 140 {
                 Button(viewModel.isOriginalExpanded ? "收起" : "展开全部") {
                     viewModel.toggleOriginalExpanded()
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(AppTheme.accent)
             }
         }
-        .padding(14)
-        .background(AppTheme.mutedBg)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var resultContentSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(viewModel.currentAction?.contentTitle ?? "结果")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(AppTheme.textSecondary)
-                    .tracking(0.5)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppTheme.textPrimary)
                 Spacer()
                 if viewModel.isLoading {
                     ProgressView()
@@ -113,7 +158,7 @@ struct ResultPanelView: View {
 
                             if viewModel.isLoading {
                                 Text("正在生成...")
-                                    .font(.system(size: 14))
+                                    .font(.system(size: 13))
                                     .foregroundColor(AppTheme.textSecondary)
                             }
 
@@ -121,7 +166,7 @@ struct ResultPanelView: View {
                                 viewModel.conversationMessages.isEmpty &&
                                 viewModel.errorMessage == nil {
                                 Text("选择一个动作后，结果会出现在这里。")
-                                    .font(.system(size: 14))
+                                    .font(.system(size: 13))
                                     .foregroundColor(AppTheme.textSecondary)
                             }
 
@@ -161,44 +206,39 @@ struct ResultPanelView: View {
                     }
                 }
             }
-            .frame(height: viewModel.isOriginalExpanded ? 250 : 280)
+            .frame(maxHeight: .infinity)
         }
-        .padding(14)
-        .background(AppTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(AppTheme.border, lineWidth: 1)
-        )
+        .frame(maxHeight: .infinity)
     }
 
     private var actionButtonsRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 16) {
             if viewModel.canStop {
-                Button("停止生成") {
+                Button {
                     viewModel.stopGeneration()
+                } label: {
+                    Label("停止生成", systemImage: "stop.circle")
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(InlineActionButtonStyle())
             } else {
-                Button("重新生成") {
+                Button {
                     viewModel.retry()
+                } label: {
+                    Label("重新生成", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(InlineActionButtonStyle())
                 .disabled(!viewModel.canRetry)
             }
 
-            Button("复制结果") {
+            Button {
                 viewModel.copyResult()
+            } label: {
+                Label("复制", systemImage: "doc.on.doc")
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(InlineActionButtonStyle())
             .disabled(viewModel.lastAssistantContent == nil)
 
             Spacer()
-
-            Button("关闭") {
-                viewModel.close()
-            }
-            .buttonStyle(SecondaryButtonStyle())
         }
     }
 
@@ -218,6 +258,25 @@ struct ResultPanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
+    private var sourceText: some View {
+        Text(viewModel.selectedText)
+            .font(.system(size: 13))
+            .foregroundColor(AppTheme.textSecondary)
+            .lineSpacing(3)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var statusColor: Color {
+        if viewModel.errorMessage != nil {
+            return .orange
+        }
+        if viewModel.isLoading {
+            return AppTheme.accent
+        }
+        return AppTheme.success
+    }
+
     private var scrollSignal: ScrollSignal {
         let lastMessage = viewModel.conversationMessages.last
         return ScrollSignal(
@@ -227,6 +286,15 @@ struct ResultPanelView: View {
             hasError: viewModel.errorMessage != nil,
             isLoading: viewModel.isLoading
         )
+    }
+}
+
+private struct InlineActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(AppTheme.textSecondary)
+            .opacity(configuration.isPressed ? 0.55 : 1)
     }
 }
 

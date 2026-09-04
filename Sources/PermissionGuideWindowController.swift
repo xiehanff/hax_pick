@@ -29,7 +29,7 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
             appState: appState ?? AppState.shared,
             onClose: { [weak self] in self?.dismiss() }
         )
-        let contentView = AppTheme.makeClippedHostingView(
+        let contentView = AppTheme.makeHostingView(
             rootView: view,
             size: Self.panelSize
         )

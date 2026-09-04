@@ -3,14 +3,13 @@ import SwiftUI
 
 @MainActor
 final class ToolbarPanelController: NSObject, NSWindowDelegate {
-    private let screenEdgeInset: CGFloat = 12
     private let toolbarVerticalOffset: CGFloat = 12
-    private let resultVerticalOffset: CGFloat = 8
 
     var onDismissSelection: ((String) -> Void)?
     private var panel: HaxPickPanel?
     private var sessionViewModel: PanelSessionViewModel?
     private var localKeyMonitor: Any?
+    private var globalKeyMonitor: Any?
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
 
@@ -20,23 +19,31 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         }
         viewModel.onModeChanged = { [weak self] mode in
             guard let self else { return }
-            self.panel?.setContentSize(self.panelSize(for: mode))
-            self.panel?.setFrameOrigin(self.clampedOrigin(for: screenPoint, mode: mode))
             if let panel = self.panel {
-                panel.hidesOnDeactivate = self.shouldHideOnDeactivate(for: mode)
+                let size = self.panelSize(for: mode, at: screenPoint)
+                panel.setContentSize(size)
+                panel.contentView = AppTheme.makeHostingView(
+                    rootView: FloatingToolbarView(viewModel: viewModel),
+                    size: size
+                )
+                panel.setFrameOrigin(self.clampedOrigin(for: screenPoint, mode: mode))
+                panel.hidesOnDeactivate = false
+                panel.isMovableByWindowBackground = mode == .toolbar
                 self.present(panel: panel, for: mode)
             }
         }
         viewModel.reset(with: text)
         sessionViewModel = viewModel
         let panel = panel ?? buildPanel()
-        panel.setContentSize(panelSize(for: viewModel.mode))
-        panel.contentView = AppTheme.makeClippedHostingView(
+        let size = panelSize(for: viewModel.mode, at: screenPoint)
+        panel.setContentSize(size)
+        panel.contentView = AppTheme.makeHostingView(
             rootView: FloatingToolbarView(viewModel: viewModel),
-            size: panelSize(for: viewModel.mode)
+            size: size
         )
         panel.setFrameOrigin(clampedOrigin(for: screenPoint, mode: viewModel.mode))
-        panel.hidesOnDeactivate = shouldHideOnDeactivate(for: viewModel.mode)
+        panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = viewModel.mode == .toolbar
         present(panel: panel, for: viewModel.mode)
         self.panel = panel
         installKeyMonitorIfNeeded()
@@ -45,7 +52,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
 
     private func buildPanel() -> HaxPickPanel {
         let panel = HaxPickPanel(
-            contentRect: NSRect(origin: .zero, size: panelSize(for: .toolbar)),
+            contentRect: NSRect(origin: .zero, size: FloatingPanelLayout.toolbarSize),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -61,33 +68,51 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         panel.delegate = self
         return panel
     }
 
-    private func panelSize(for mode: PanelSessionViewModel.PanelMode) -> NSSize {
+    private func panelSize(for mode: PanelSessionViewModel.PanelMode, at screenPoint: NSPoint) -> NSSize {
         switch mode {
         case .toolbar:
             return FloatingPanelLayout.toolbarSize
         case .result:
-            return FloatingPanelLayout.resultSize
+            let visibleFrame = visibleFrame(containing: screenPoint)
+            let availableWidth = max(320, visibleFrame.width - FloatingPanelLayout.screenEdgeInset * 2)
+            let preferredWidth = visibleFrame.width * FloatingPanelLayout.resultWidthFraction
+            let width = min(
+                max(preferredWidth, FloatingPanelLayout.resultMinimumWidth),
+                min(FloatingPanelLayout.resultMaximumWidth, availableWidth)
+            )
+            let availableHeight = max(360, visibleFrame.height - FloatingPanelLayout.screenEdgeInset * 2)
+            let preferredHeight = visibleFrame.height * FloatingPanelLayout.resultHeightFraction
+            let height = min(
+                max(preferredHeight, FloatingPanelLayout.resultMinimumHeight),
+                min(FloatingPanelLayout.resultMaximumHeight, availableHeight)
+            )
+            return NSSize(width: width, height: height)
         }
     }
 
     private func clampedOrigin(for screenPoint: NSPoint, mode: PanelSessionViewModel.PanelMode) -> NSPoint {
-        let panelSize = panelSize(for: mode)
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? NSScreen.main
-        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
-        let verticalOffset = mode == .toolbar ? toolbarVerticalOffset : resultVerticalOffset
+        let panelSize = panelSize(for: mode, at: screenPoint)
+        let visibleFrame = visibleFrame(containing: screenPoint)
+
+        if mode == .result {
+            return NSPoint(
+                x: visibleFrame.maxX - panelSize.width - FloatingPanelLayout.screenEdgeInset,
+                y: visibleFrame.midY - panelSize.height / 2
+            )
+        }
 
         let desiredX = screenPoint.x - (panelSize.width / 2)
-        let desiredY = screenPoint.y - panelSize.height - verticalOffset
+        let desiredY = screenPoint.y - panelSize.height - toolbarVerticalOffset
 
-        let minX = visibleFrame.minX + screenEdgeInset
-        let maxX = visibleFrame.maxX - panelSize.width - screenEdgeInset
-        let minY = visibleFrame.minY + screenEdgeInset
-        let maxY = visibleFrame.maxY - panelSize.height - screenEdgeInset
+        let minX = visibleFrame.minX + FloatingPanelLayout.screenEdgeInset
+        let maxX = visibleFrame.maxX - panelSize.width - FloatingPanelLayout.screenEdgeInset
+        let minY = visibleFrame.minY + FloatingPanelLayout.screenEdgeInset
+        let maxY = visibleFrame.maxY - panelSize.height - FloatingPanelLayout.screenEdgeInset
 
         return NSPoint(
             x: min(max(desiredX, minX), maxX),
@@ -95,13 +120,26 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         )
     }
 
+    private func visibleFrame(containing point: NSPoint) -> NSRect {
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main
+        return screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
+    }
+
     private func installKeyMonitorIfNeeded() {
-        guard localKeyMonitor == nil else { return }
-        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard self?.panel?.isVisible == true else { return event }
-            guard event.keyCode == 53 else { return event }
-            self?.dismissPanel()
-            return nil
+        if localKeyMonitor == nil {
+            localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard self?.panel?.isVisible == true else { return event }
+                guard event.keyCode == 53 else { return event }
+                self?.dismissPanel()
+                return nil
+            }
+        }
+
+        if globalKeyMonitor == nil {
+            globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53, self?.panel?.isVisible == true else { return }
+                self?.dismissPanel()
+            }
         }
     }
 
@@ -112,15 +150,6 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         case .result:
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    private func shouldHideOnDeactivate(for mode: PanelSessionViewModel.PanelMode) -> Bool {
-        switch mode {
-        case .toolbar:
-            return false
-        case .result:
-            return true
         }
     }
 
@@ -148,6 +177,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
 
     private func handleMouseEvent(_ event: NSEvent) {
         guard let panel, panel.isVisible else { return }
+        guard sessionViewModel?.mode == .toolbar else { return }
         let location = event.locationInWindow
 
         if event.window == panel {
@@ -162,15 +192,6 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         }
 
         guard !panel.frame.contains(screenLocation) else { return }
-        dismissPanel()
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        guard let resignedPanel = notification.object as? HaxPickPanel,
-              resignedPanel === panel,
-              sessionViewModel?.mode == .result else {
-            return
-        }
         dismissPanel()
     }
 

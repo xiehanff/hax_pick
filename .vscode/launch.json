@@ -19,6 +19,26 @@
             "target": "hax_pick",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release hax_pick"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:hax_pick}",
+            "name": "Debug HaxPickApp",
+            "target": "HaxPickApp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug HaxPickApp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:hax_pick}",
+            "name": "Release HaxPickApp",
+            "target": "HaxPickApp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release HaxPickApp"
         }
     ]
 }

@@ -7,8 +7,26 @@ struct TextSelectionSnapshot {
 }
 
 enum AccessibilityTextService {
-    private static let browserFallbackRoles = [
+    private static let clipboardFallbackRoles = [
         "AXWebArea",
+        "AXStaticText",
+        "AXTextArea",
+        "AXTextField",
+    ]
+
+    private static let textSelectionApplicationIdentifiers = [
+        "com.apple.Safari",
+        "com.google.Chrome",
+        "com.microsoft.edgemac",
+        "com.microsoft.VSCode",
+        "com.openai.codex",
+        "com.tencent.qqbrowser",
+        "com.apple.dt.Xcode",
+        "org.mozilla.firefox",
+        "org.jetbrains.",
+        "com.jetbrains.",
+        "cn.trae.app",
+        "dev.zcode.app",
     ]
 
     private static let fallbackAttributeCandidates: [CFString] = [
@@ -31,40 +49,53 @@ enum AccessibilityTextService {
         dragStartPoint: NSPoint,
         releasePoint: NSPoint
     ) -> TextSelectionSnapshot? {
-        guard let focusedElement else {
-            return nil
-        }
-
-        var selectedValue: CFTypeRef?
-        let selectedResult = AXUIElementCopyAttributeValue(
-            focusedElement,
-            kAXSelectedTextAttribute as CFString,
-            &selectedValue
-        )
-
-        guard selectedResult == .success, let text = selectedValue as? String else {
-            return nil
-        }
-
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
         let fallbackPoint = dragStartPoint.midpoint(to: releasePoint)
-        let anchorPoint = selectionAnchorPoint(
-            for: focusedElement,
-            fallbackPoint: fallbackPoint,
+        for element in selectionCandidateElements(
+            focusedElement: focusedElement,
+            dragStartPoint: dragStartPoint,
             releasePoint: releasePoint
-        ) ?? fallbackPoint
-        return TextSelectionSnapshot(text: trimmed, anchorPoint: anchorPoint)
+        ) {
+            guard let text = selectedText(from: element) else { continue }
+            let anchorPoint = selectionAnchorPoint(
+                for: element,
+                fallbackPoint: fallbackPoint,
+                releasePoint: releasePoint
+            ) ?? fallbackPoint
+            return TextSelectionSnapshot(text: text, anchorPoint: anchorPoint)
+        }
+        return nil
     }
 
     static func shouldAttemptClipboardFallback() -> Bool {
-        shouldAttemptClipboardFallback(using: focusedElementSnapshot())
+        shouldAttemptClipboardFallback(
+            using: focusedElementSnapshot(),
+            at: NSEvent.mouseLocation
+        )
     }
 
-    static func shouldAttemptClipboardFallback(using focusedElement: AXUIElement?) -> Bool {
-        guard let focusedElement else { return false }
-        return supportsClipboardFallback(on: focusedElement)
+    static func shouldAttemptClipboardFallback(
+        using focusedElement: AXUIElement?,
+        at screenPoint: NSPoint = NSEvent.mouseLocation
+    ) -> Bool {
+        let candidates = selectionCandidateElements(
+            focusedElement: focusedElement,
+            dragStartPoint: screenPoint,
+            releasePoint: screenPoint
+        )
+        if candidates.contains(where: supportsClipboardFallback) {
+            return true
+        }
+
+        guard let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+            return false
+        }
+        return isKnownTextSelectionApplication(bundleIdentifier: bundleIdentifier)
+    }
+
+    static func isKnownTextSelectionApplication(bundleIdentifier: String) -> Bool {
+        textSelectionApplicationIdentifiers.contains {
+            bundleIdentifier == $0 || bundleIdentifier.hasPrefix($0)
+        }
     }
 
     static func focusedElementSnapshot() -> AXUIElement? {
@@ -156,6 +187,11 @@ enum AccessibilityTextService {
     }
 
     private static func supportsClipboardFallback(on focusedElement: AXUIElement) -> Bool {
+        let elementRole = role(of: focusedElement)
+        if elementRole.map(clipboardFallbackRoles.contains) == true {
+            return true
+        }
+
         var attributeNames: CFArray?
         let result = AXUIElementCopyAttributeNames(focusedElement, &attributeNames)
         guard result == .success, let attributeNames else {
@@ -165,7 +201,7 @@ enum AccessibilityTextService {
         let names = (attributeNames as [AnyObject]).compactMap { $0 as? String }
         return shouldUseClipboardFallback(
             attributeNames: names,
-            role: role(of: focusedElement)
+            role: elementRole
         )
     }
 
@@ -176,7 +212,83 @@ enum AccessibilityTextService {
         }
 
         guard let role else { return false }
-        return browserFallbackRoles.contains(role)
+        return clipboardFallbackRoles.contains(role)
+    }
+
+    private static func selectedText(from element: AXUIElement) -> String? {
+        var selectedValue: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            &selectedValue
+        )
+        guard result == .success, let text = selectedValue as? String else {
+            return nil
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func selectionCandidateElements(
+        focusedElement: AXUIElement?,
+        dragStartPoint: NSPoint,
+        releasePoint: NSPoint
+    ) -> [AXUIElement] {
+        var candidates: [AXUIElement] = []
+
+        func appendHierarchy(startingAt element: AXUIElement?) {
+            var current = element
+            for _ in 0..<8 {
+                guard let element = current else { return }
+                if !candidates.contains(where: { CFEqual($0, element) }) {
+                    candidates.append(element)
+                }
+                current = parent(of: element)
+            }
+        }
+
+        appendHierarchy(startingAt: element(atAppKitScreenPoint: releasePoint))
+        appendHierarchy(startingAt: element(atAppKitScreenPoint: dragStartPoint))
+        appendHierarchy(startingAt: focusedElement)
+        return candidates
+    }
+
+    private static func parent(of element: AXUIElement) -> AXUIElement? {
+        var parentValue: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            element,
+            kAXParentAttribute as CFString,
+            &parentValue
+        )
+        guard result == .success,
+              let parentValue,
+              CFGetTypeID(parentValue) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return (parentValue as! AXUIElement)
+    }
+
+    private static func element(atAppKitScreenPoint point: NSPoint) -> AXUIElement? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? 0
+        let candidatePoints = [
+            NSPoint(x: point.x, y: primaryMaxY - point.y),
+            point,
+        ]
+
+        for candidatePoint in candidatePoints {
+            var element: AXUIElement?
+            let result = AXUIElementCopyElementAtPosition(
+                systemWideElement,
+                Float(candidatePoint.x),
+                Float(candidatePoint.y),
+                &element
+            )
+            if result == .success, let element {
+                return element
+            }
+        }
+        return nil
     }
 
     private static func role(of element: AXUIElement) -> String? {

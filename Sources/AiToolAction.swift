@@ -11,7 +11,8 @@ enum AiToolAction: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    static let primaryActions: [AiToolAction] = [.copy, .translate, .explain, .summarize]
+    /// MVP 只在划词工具条暴露翻译和解释；复制作为独立的基础操作展示。
+    static let primaryActions: [AiToolAction] = [.translate, .explain]
 
     var symbolName: String {
         switch self {
@@ -37,9 +38,9 @@ enum AiToolAction: String, CaseIterable, Identifiable {
         case .copy:
             return "这里是原文"
         case .translate:
-            return "这里是我的翻译"
+            return "翻译"
         case .explain:
-            return "这里是我的解释"
+            return "解释"
         case .summarize:
             return "这里是我的总结"
         case .polish:

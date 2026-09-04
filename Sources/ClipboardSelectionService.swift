@@ -4,21 +4,34 @@ enum ClipboardSelectionService {
     static let simulatedCopyEventTag: Int64 = 0x4841585049434B // "HAXPICK"
 
     static func selectedTextBySimulatedCopy(
+        allowAppleScriptFallback: Bool = true,
+        timeout: TimeInterval = 0.4,
         userCopyShortcutDetected: @escaping (Date) -> Bool = { _ in false }
     ) async -> String? {
         // 通道 2a: CGEvent 模拟 ⌘C
-        if let text = await copyViaCGEvent(userCopyShortcutDetected: userCopyShortcutDetected) { return text }
+        if let text = await copyViaCGEvent(
+            timeout: timeout,
+            userCopyShortcutDetected: userCopyShortcutDetected
+        ) {
+            return text
+        }
+        guard allowAppleScriptFallback, !Task.isCancelled else { return nil }
         // 通道 2b: AppleScript 兜底
-        return await copyViaAppleScript(userCopyShortcutDetected: userCopyShortcutDetected)
+        return await copyViaAppleScript(
+            timeout: timeout,
+            userCopyShortcutDetected: userCopyShortcutDetected
+        )
     }
 
     // MARK: - CGEvent 方案
 
     private static func copyViaCGEvent(
+        timeout: TimeInterval,
         userCopyShortcutDetected: @escaping (Date) -> Bool
     ) async -> String? {
         return await performSimulatedCopy(
             using: simulateCommandC,
+            timeout: timeout,
             userCopyShortcutDetected: userCopyShortcutDetected
         )
     }
@@ -40,17 +53,19 @@ enum ClipboardSelectionService {
     // MARK: - AppleScript 兜底
 
     private static func copyViaAppleScript(
+        timeout: TimeInterval,
         userCopyShortcutDetected: @escaping (Date) -> Bool
     ) async -> String? {
         return await performSimulatedCopy(
             using: {
-            let script = "tell application \"System Events\" to keystroke \"c\" using command down"
-            let process = Process()
-            process.launchPath = "/usr/bin/osascript"
-            process.arguments = ["-e", script]
-            try? process.run()
-            process.waitUntilExit()
-        },
+                let script = "tell application \"System Events\" to keystroke \"c\" using command down"
+                let process = Process()
+                process.launchPath = "/usr/bin/osascript"
+                process.arguments = ["-e", script]
+                try? process.run()
+                process.waitUntilExit()
+            },
+            timeout: timeout,
             userCopyShortcutDetected: userCopyShortcutDetected
         )
     }
@@ -59,6 +74,7 @@ enum ClipboardSelectionService {
 
     private static func performSimulatedCopy(
         using copyAction: () -> Void,
+        timeout: TimeInterval,
         userCopyShortcutDetected: @escaping (Date) -> Bool
     ) async -> String? {
         let pasteboard = NSPasteboard.general
@@ -74,6 +90,7 @@ enum ClipboardSelectionService {
             pasteboard: pasteboard,
             marker: marker,
             fallbackStartedAt: fallbackStartedAt,
+            timeout: timeout,
             userCopyShortcutDetected: userCopyShortcutDetected
         )
 
@@ -93,11 +110,15 @@ enum ClipboardSelectionService {
         pasteboard: NSPasteboard,
         marker: String,
         fallbackStartedAt: Date,
+        timeout: TimeInterval,
         userCopyShortcutDetected: @escaping (Date) -> Bool
     ) async -> PasteboardCopyResult {
-        let deadline = Date().addingTimeInterval(0.4)
+        let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
+            if Task.isCancelled {
+                return .timedOut
+            }
             let currentString = pasteboard.string(forType: .string)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let didChangeExternally = pasteboard.changeCount > 0
@@ -112,7 +133,11 @@ enum ClipboardSelectionService {
                 return result
             }
 
-            try? await Task.sleep(nanoseconds: 20_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            } catch {
+                return .timedOut
+            }
         }
 
         return .timedOut

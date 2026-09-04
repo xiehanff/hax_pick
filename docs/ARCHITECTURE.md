@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-HaxPick 是一个 macOS 菜单栏划词助手。用户划词后弹出悬浮工具栏，通过 DeepSeek API 执行翻译/解释/总结/润色/改写/提取要点。
+HaxPick 是一个 macOS 菜单栏划词助手。用户划词后弹出悬浮工具栏，通过 DeepSeek API 执行翻译或解释。
 
 ## 构建与运行
 
@@ -64,15 +64,20 @@ HaxPickApp
 
 ## 双通道划词读取
 
-`SelectionMonitor.handleMouseUp()` 的读取顺序不可颠倒：
+`SelectionMonitor` 同时监听 `leftMouseDown`、`leftMouseDragged` 和 `leftMouseUp`，读取顺序不可颠倒：
 
-1. Accessibility API：先抓早期 AX 选区快照，再等待系统完成选区更新并重试。
-2. ⌘C 兜底：仅在 AX 通道失败且目标表现为文本区域时执行，同时保护用户原剪贴板内容。
+1. `mouseDown` 保存拖动起点与当时的焦点元素，避免浮层出现后焦点变化导致丢失目标。
+2. 拖动达到阈值后，在 `mouseDragged` 阶段立即读取 Accessibility 选区；若首次尚未形成选区，35ms 后重试。
+3. 拖动阶段的 AX 通道仍失败时，浏览器、IDE、Codex 或文本控件进入快速 ⌘C 兜底：只使用 CGEvent，最多等待 160ms。读到第一个词即可在鼠标仍按下时显示工具栏。
+4. `mouseUp` 再执行一次 AX 重试与完整 ⌘C 兜底（CGEvent + AppleScript，最多等待 400ms），用于把拖动中显示的局部文本更新为最终选区。
+
+AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动起点下方的元素及各自父层级，覆盖网页的 `AXWebArea` / `AXStaticText`、编辑器的 `AXTextArea` / `AXTextField`，以及 Chrome、Safari、Edge、Firefox、VS Code、Xcode、JetBrains、Codex 等已知文本应用。异步探测用 drag generation 隔离旧手势；被取消或超时的剪贴板探测会恢复原剪贴板内容。
 
 关键阈值：
 
-- 拖动距离 ≥ 8pt
-- mouseUp 后等待 150ms
+- 拖动距离 ≥ 3pt
+- 拖动阶段 AX 重试等待 35ms，快速剪贴板兜底上限 160ms
+- mouseUp 后等待 35ms，再进行最终选区校正
 - 同一文本 1.2s 内不重复触发
 - 关闭面板后的文本在下一次有效拖动前进入 ignored selection
 
@@ -80,12 +85,26 @@ HaxPickApp
 
 `PanelSessionViewModel.PanelMode`：
 
-- `.toolbar`：320×48pt
-- `.result`：440×628pt
+- `.toolbar`：378×48pt，定位在选区附近
+- `.result`：宽度为当前屏幕可用宽度的 36%，限制在 460–560pt；高度为可用区域的 82%，限制在 560–720pt，并在右侧垂直居中
 
 尺寸由 `FloatingPanelLayout` 统一管理。
 
-`.toolbar` 不主动 activate，`hidesOnDeactivate = false`；`.result` 使用 `activate + makeKeyAndOrderFront`，并设置 `hidesOnDeactivate = true`。
+`.toolbar` 不主动 activate，点击面板外会关闭；`.result` 使用 `activate + makeKeyAndOrderFront`，固定在当前屏幕右侧且保持 `hidesOnDeactivate = false`，点击侧栏外不会关闭。两种模式都可通过 ESC 关闭。
+
+## Liquid Glass 兼容层
+
+`HaxGlassSurface` 统一承载工具栏、结果侧栏和菜单栏面板的玻璃外壳：
+
+- 使用 Xcode 26 / Swift 6.2 构建且运行在 macOS 26+ 时，采用 SwiftUI 原生 `glassEffect`。
+- 使用旧版 SDK 或运行在 macOS 13–15 时，回退到 `.underWindowBackground` 的 `NSVisualEffectView`，让桌面色彩透过白色磨砂层，并保留降低透明度适配。
+- 结果侧栏使用 12pt 宽玻璃留边，菜单栏面板使用 8pt 留边；外缘由外侧高光和内侧暗边组成同心倒角，表现玻璃厚度。
+- 浅色玻璃外缘只叠加 4% 白色，内容层叠加 72% 白色；外缘比主题背景更透明，主题背景仍能轻微透出桌面色彩。
+- 外壳由 SwiftUI 连续圆角的独立合成层裁切，窗口阴影交由 `NSPanel` 绘制，避免透明窗口边界裁断阴影后产生圆角锯齿。
+- 分区线使用带水平内边距的 0.5pt 弱分隔线，不与玻璃或内容层边缘相接。
+- 长文本内容区使用白色磨砂微透明背景；继续提问输入框保持更高不透明度，避免输入控件丢失边界和对比度。
+
+项目是原生 SwiftUI / AppKit 应用，Flutter 的 `liquid_glass_widgets` 无法直接作为 Swift Package 接入；UI 按其“玻璃用于悬浮控制层、内容保持不透明”的原则使用系统原生能力实现。
 
 ## AI Session、本地完整历史与请求窗口
 
@@ -335,7 +354,7 @@ isFollowingTail = false
 
 ## NSPanel 生命周期
 
-显式关闭、ESC、点击面板外部以及 `.result` 的 `windowDidResignKey` 最终都进入统一 dismiss 流程。
+显式关闭和 ESC 始终进入统一 dismiss 流程。点击面板外部只在 `.toolbar` 模式触发 dismiss；`.result` 模式保持右侧常驻，不再通过 `windowDidResignKey` 自动关闭。
 
 `prepareForDismissal()` 是幂等的，并调用 `AiAgentSession.cancel()`。关闭面板时当前 streaming draft 会按取消语义 rollback，不会在隐藏 Session 中继续写入。
 
