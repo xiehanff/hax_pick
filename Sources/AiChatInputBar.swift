@@ -28,9 +28,9 @@ struct AiChatInputBar: View {
                 Button {
                     viewModel.submitFollowUp()
                 } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 12, weight: .bold))
+                    HaxIcon(asset: .send)
                         .foregroundColor(.white)
+                        .frame(width: 15, height: 15)
                         .frame(width: 28, height: 28)
                         .background(AppTheme.accent)
                         .clipShape(Circle())
@@ -39,6 +39,7 @@ struct AiChatInputBar: View {
                 .disabled(!viewModel.canSubmitFollowUp)
                 .opacity(viewModel.canSubmitFollowUp ? 1 : 0.42)
                 .help("发送")
+                .accessibilityLabel("发送")
             }
             .padding(.leading, 12)
             .padding(.trailing, 5)

@@ -7,55 +7,54 @@ struct MenuBarContentView: View {
     @State private var apiKeyDraft = ""
 
     var body: some View {
-        HaxGlassSurface(style: .light, cornerRadius: AppTheme.menuCorner) {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
 
-                SoftDivider(horizontalInset: 12)
+            SoftDivider(horizontalInset: 12)
 
-                permissionSection
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+            permissionSection
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
 
-                SoftDivider(horizontalInset: 12)
+            SoftDivider(horizontalInset: 12)
 
-                apiKeySection
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+            apiKeySection
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
 
-                SoftDivider(horizontalInset: 12)
+            SoftDivider(horizontalInset: 12)
 
-                modelSection
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+            modelSection
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
 
-                SoftDivider(horizontalInset: 12)
+            SoftDivider(horizontalInset: 12)
 
-                bottomActions
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-            }
-            .frame(width: 304)
-            .background(AppTheme.panelContent)
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: AppTheme.menuCorner - 8,
-                    style: .continuous
-                )
-            )
-            .compositingGroup()
-            .overlay {
-                RoundedRectangle(
-                    cornerRadius: AppTheme.menuCorner - 8,
-                    style: .continuous
-                )
-                .stroke(Color.white.opacity(0.76), lineWidth: 0.75)
-            }
-            .padding(8)
+            bottomActions
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
         }
+        .frame(width: 304)
+        .background(AppTheme.panelContent)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: AppTheme.menuCorner - 8,
+                style: .continuous
+            )
+        )
+        .compositingGroup()
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: AppTheme.menuCorner - 8,
+                style: .continuous
+            )
+            .stroke(Color.white.opacity(0.76), lineWidth: 0.75)
+        }
+        .padding(8)
         .frame(width: 320)
+        .background(ClearMenuWindowBackground())
         .environment(\.colorScheme, .light)
         .onAppear {
             apiKeyDraft = appState.apiKey
@@ -112,13 +111,14 @@ struct MenuBarContentView: View {
                 Button {
                     appState.refreshPermissionStatus()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10, weight: .medium))
+                    HaxIcon(asset: .refresh)
+                        .frame(width: 12, height: 12)
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(AppTheme.textSecondary)
                 .help("刷新权限状态")
+                .accessibilityLabel("刷新权限状态")
             }
 
             if !appState.permissionGranted {
@@ -280,6 +280,33 @@ struct MenuBarContentView: View {
         _ = appState.retryAPIKeyStorage()
         if draftWasUnmodified {
             apiKeyDraft = appState.apiKey
+        }
+    }
+}
+
+private struct ClearMenuWindowBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        ProbeView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        configure(nsView.window)
+    }
+
+    private func configure(_ window: NSWindow?) {
+        window?.isOpaque = false
+        window?.backgroundColor = .clear
+        window?.contentView?.wantsLayer = true
+        window?.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    private final class ProbeView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.isOpaque = false
+            window?.backgroundColor = .clear
+            window?.contentView?.wantsLayer = true
+            window?.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
         }
     }
 }

@@ -12,7 +12,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "HaxPickApp",
-            path: "Sources"
+            path: "Sources",
+            resources: [
+                .copy("Resources/HaxIcons"),
+            ]
         ),
         .testTarget(
             name: "HaxPickAppTests",

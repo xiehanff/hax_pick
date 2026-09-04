@@ -32,6 +32,8 @@
 		D00500000000000000000001 /* AiMessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00500000000000000000001 /* AiMessageBubble.swift */; };
 		D00600000000000000000001 /* AiChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00600000000000000000001 /* AiChatInputBar.swift */; };
 		D00700000000000000000001 /* ResultPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00700000000000000000001 /* ResultPanelView.swift */; };
+		F10000000000000000000001 /* HaxIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* HaxIcon.swift */; };
+		F10100000000000000000001 /* HaxIcons in Resources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000002 /* HaxIcons */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -61,6 +63,8 @@
 		E00500000000000000000001 /* AiMessageBubble.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiMessageBubble.swift; path = Sources/AiMessageBubble.swift; sourceTree = "<group>"; };
 		E00600000000000000000001 /* AiChatInputBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiChatInputBar.swift; path = Sources/AiChatInputBar.swift; sourceTree = "<group>"; };
 		E00700000000000000000001 /* ResultPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ResultPanelView.swift; path = Sources/ResultPanelView.swift; sourceTree = "<group>"; };
+		F10000000000000000000002 /* HaxIcon.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HaxIcon.swift; path = Sources/HaxIcon.swift; sourceTree = "<group>"; };
+		F10100000000000000000002 /* HaxIcons */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = HaxIcons; path = Sources/Resources/HaxIcons; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +101,8 @@
 				19B033F4FE85DBDBF4C5ECEC /* AccessibilityTextService.swift */,
 				488C96139802ED625DDC07B4 /* AppState.swift */,
 				2B7E8E6F3A66451D9B5B3C00 /* AppBrandIcon.swift */,
+				F10000000000000000000002 /* HaxIcon.swift */,
+				F10100000000000000000002 /* HaxIcons */,
 				E00400000000000000000001 /* AiAgentSession.swift */,
 				E00600000000000000000001 /* AiChatInputBar.swift */,
 				E00100000000000000000001 /* AiMessage.swift */,
@@ -201,6 +207,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F10100000000000000000001 /* HaxIcons in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -233,6 +240,7 @@
 				2B7E8E6F3A66451D9B5B3C01 /* AppBrandIcon.swift in Sources */,
 				D00400000000000000000001 /* AiAgentSession.swift in Sources */,
 				D00600000000000000000001 /* AiChatInputBar.swift in Sources */,
+				F10000000000000000000001 /* HaxIcon.swift in Sources */,
 				D00100000000000000000001 /* AiMessage.swift in Sources */,
 				D00500000000000000000001 /* AiMessageBubble.swift in Sources */,
 				D00300000000000000000001 /* AiPrompts.swift in Sources */,

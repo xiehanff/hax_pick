@@ -7,7 +7,11 @@ struct FloatingToolbarView: View {
         Group {
             switch viewModel.mode {
             case .toolbar:
-                HaxGlassSurface(style: .dark, cornerRadius: AppTheme.toolbarCorner) {
+                HaxGlassSurface(
+                    style: .dark,
+                    cornerRadius: AppTheme.toolbarCorner,
+                    showsRim: false
+                ) {
                     toolbarView
                         .padding(.horizontal, 5)
                         .padding(.vertical, 4)
@@ -44,7 +48,11 @@ struct FloatingToolbarView: View {
 
     private var toolbarView: some View {
         HStack(spacing: 5) {
-            AppBrandIcon(size: 32)
+            ToolbarDragHandle()
+                .frame(width: 24, height: 32)
+                .allowsHitTesting(false)
+
+            AppBrandIcon(size: 38)
 
             Text("已选中 \(viewModel.selectedText.count) 个字符")
                 .font(.system(size: 11, weight: .medium))
@@ -58,13 +66,14 @@ struct FloatingToolbarView: View {
             Button {
                 viewModel.handlePrimaryAction(.copy)
             } label: {
-                Image(systemName: AiToolAction.copy.symbolName)
-                    .font(.system(size: 12, weight: .semibold))
+                HaxIcon(asset: .copy)
                     .foregroundColor(.white.opacity(0.88))
+                    .frame(width: 14, height: 14)
                     .frame(width: 26, height: 32)
             }
             .buttonStyle(.plain)
             .help("复制原文")
+            .accessibilityLabel("复制原文")
 
             ForEach(AiToolAction.primaryActions) { action in
                 Button {
@@ -72,8 +81,7 @@ struct FloatingToolbarView: View {
                 } label: {
                     CapsuleToolButton(
                         title: action.rawValue,
-                        icon: action.symbolName,
-                        isSelected: action == .translate
+                        icon: action.symbolName
                     )
                 }
                 .buttonStyle(.plain)

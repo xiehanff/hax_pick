@@ -98,12 +98,13 @@ struct ResultPanelView: View {
                 Button {
                     viewModel.copyOriginalText()
                 } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 11, weight: .semibold))
+                    HaxIcon(asset: .copy)
                         .foregroundColor(AppTheme.textSecondary)
+                        .frame(width: 13, height: 13)
                 }
                 .buttonStyle(.plain)
                 .help("复制原文")
+                .accessibilityLabel("复制原文")
             }
 
             if viewModel.isOriginalExpanded {
@@ -224,7 +225,12 @@ struct ResultPanelView: View {
                 Button {
                     viewModel.retry()
                 } label: {
-                    Label("重新生成", systemImage: "arrow.clockwise")
+                    Label {
+                        Text("重新生成")
+                    } icon: {
+                        HaxIcon(asset: .refresh)
+                            .frame(width: 14, height: 14)
+                    }
                 }
                 .buttonStyle(InlineActionButtonStyle())
                 .disabled(!viewModel.canRetry)
@@ -233,7 +239,12 @@ struct ResultPanelView: View {
             Button {
                 viewModel.copyResult()
             } label: {
-                Label("复制", systemImage: "doc.on.doc")
+                Label {
+                    Text("复制")
+                } icon: {
+                    HaxIcon(asset: .copy)
+                        .frame(width: 14, height: 14)
+                }
             }
             .buttonStyle(InlineActionButtonStyle())
             .disabled(viewModel.lastAssistantContent == nil)

@@ -162,6 +162,7 @@ private struct VisualEffectMaterialView: NSViewRepresentable {
 struct HaxGlassSurface<Content: View>: View {
     let style: HaxGlassStyle
     let cornerRadius: CGFloat
+    let showsRim: Bool
     @ViewBuilder let content: Content
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -169,10 +170,12 @@ struct HaxGlassSurface<Content: View>: View {
     init(
         style: HaxGlassStyle,
         cornerRadius: CGFloat,
+        showsRim: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.style = style
         self.cornerRadius = cornerRadius
+        self.showsRim = showsRim
         self.content = content()
     }
 
@@ -185,7 +188,7 @@ struct HaxGlassSurface<Content: View>: View {
                     .regular.tint(style.nativeTint),
                     in: .rect(cornerRadius: cornerRadius)
                 )
-                .glassRim(style: style, cornerRadius: cornerRadius)
+                .glassRim(style: style, cornerRadius: cornerRadius, enabled: showsRim)
         } else {
             fallbackSurface
         }
@@ -206,20 +209,29 @@ struct HaxGlassSurface<Content: View>: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .compositingGroup()
-            .glassRim(style: style, cornerRadius: cornerRadius)
+            .glassRim(style: style, cornerRadius: cornerRadius, enabled: showsRim)
     }
 }
 
 private extension View {
-    func glassRim(style: HaxGlassStyle, cornerRadius: CGFloat) -> some View {
-        overlay {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(style.rimColor, lineWidth: 1)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: max(cornerRadius - 2, 0), style: .continuous)
-                .inset(by: 2)
-                .stroke(style.bevelColor, lineWidth: 0.75)
+    @ViewBuilder
+    func glassRim(
+        style: HaxGlassStyle,
+        cornerRadius: CGFloat,
+        enabled: Bool
+    ) -> some View {
+        if enabled {
+            overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(style.rimColor, lineWidth: 1)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: max(cornerRadius - 2, 0), style: .continuous)
+                    .inset(by: 2)
+                    .stroke(style.bevelColor, lineWidth: 0.75)
+            }
+        } else {
+            self
         }
     }
 }
@@ -249,13 +261,11 @@ extension NSPoint {
     }
 }
 
-// MARK: - 胶囊工具按钮（工具栏用）
+// MARK: - 工具栏动作按钮
 
 struct CapsuleToolButton: View {
     let title: String
     let icon: String
-    var isSelected = false
-    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -264,21 +274,27 @@ struct CapsuleToolButton: View {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
         }
-        .foregroundColor(isSelected ? .white : .white.opacity(0.88))
+        .foregroundColor(.white.opacity(0.88))
         .padding(.horizontal, 11)
         .frame(height: 32)
-        .background(
-            isSelected
-                ? AppTheme.accent
-                : Color.white.opacity(isHovered ? 0.14 : 0.07)
-        )
-        .clipShape(Capsule())
-        .overlay {
-            Capsule()
-                .stroke(Color.white.opacity(isSelected ? 0.20 : 0.08), lineWidth: 0.5)
-        }
         .fixedSize()
-        .onHover { isHovered = $0 }
+    }
+}
+
+struct ToolbarDragHandle: View {
+    var body: some View {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.fixed(3), spacing: 3), count: 3),
+            spacing: 3
+        ) {
+            ForEach(0..<9, id: \.self) { _ in
+                Circle()
+                    .fill(Color.white.opacity(0.52))
+                    .frame(width: 2.5, height: 2.5)
+            }
+        }
+        .frame(width: 15, height: 15)
+        .accessibilityHidden(true)
     }
 }
 
