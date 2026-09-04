@@ -13,6 +13,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify macOS icon assets
+        run: |
+          bash scripts/generate_macos_icons.sh hax_pick
+          git diff --exit-code -- \
+            hax_pick/AppIcon.icns \
+            hax_pick/MenuBarIcon.png \
+            hax_pick/MenuBarIcon@2x.png
+
       - name: Run Swift tests
         run: swift test
 
@@ -23,5 +31,26 @@ jobs:
             -scheme hax_pick \
             -configuration Debug \
             -destination 'platform=macOS' \
+            CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/haxpick-build" \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Verify built app icon bundle
+        run: |
+          APP="$RUNNER_TEMP/haxpick-build/hax_pick.app"
+          PLIST="$APP/Contents/Info.plist"
+          RESOURCES="$APP/Contents/Resources"
+
+          test -d "$APP"
+          test -f "$RESOURCES/AppIcon.icns"
+          test -f "$RESOURCES/MenuBarIcon.png"
+          test -f "$RESOURCES/MenuBarIcon@2x.png"
+
+          test "$(plutil -extract CFBundleName raw -o - "$PLIST")" = "HaxPick"
+          test "$(plutil -extract CFBundleDisplayName raw -o - "$PLIST")" = "HaxPick"
+          test "$(plutil -extract CFBundleIconFile raw -o - "$PLIST")" = "AppIcon.icns"
+
+          test "$(sips -g pixelWidth "$RESOURCES/MenuBarIcon.png" | awk '/pixelWidth/ {print $2}')" = "16"
+          test "$(sips -g pixelHeight "$RESOURCES/MenuBarIcon.png" | awk '/pixelHeight/ {print $2}')" = "16"
+          test "$(sips -g pixelWidth "$RESOURCES/MenuBarIcon@2x.png" | awk '/pixelWidth/ {print $2}')" = "32"
+          test "$(sips -g pixelHeight "$RESOURCES/MenuBarIcon@2x.png" | awk '/pixelHeight/ {print $2}')" = "32"
