@@ -22,16 +22,16 @@ bash scripts/generate_macos_icons.sh hax_pick
 assets/app-icon.png
         │
         ├── hax_pick/AppIcon.icns
-        │      └── macOS .app / Finder / 系统设置等 bundle 图标
+        │      └── macOS .app / Finder / 系统设置 / 应用内品牌图标
         │
         ├── hax_pick/MenuBarIcon.png
-        │      └── 16×16，菜单栏 1x
+        │      └── 16×16，菜单栏 1x 派生资源
         │
         └── hax_pick/MenuBarIcon@2x.png
-               └── 32×32，菜单栏 Retina
+               └── 32×32，菜单栏 Retina 运行时资源
 ```
 
-`Sources/HaxPickApp.swift` 和 `Sources/AppBrandIcon.swift` 从最终 app bundle 中读取 `MenuBarIcon.png`。`hax_pick/Info.plist` 通过 `CFBundleIconFile = AppIcon.icns` 声明应用图标。
+`Sources/HaxPickApp.swift` 从最终 app bundle 明确读取 32px 的 `MenuBarIcon@2x.png`，并设置 16pt 逻辑尺寸，保证 Retina 显示清晰。`Sources/AppBrandIcon.swift` 直接使用 `NSApplication.shared.applicationIconImage`，不再放大托盘小图。`hax_pick/Info.plist` 通过 `CFBundleIconFile = AppIcon.icns` 声明应用图标。
 
 ## 修改图标时
 
