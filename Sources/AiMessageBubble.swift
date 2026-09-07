@@ -108,15 +108,9 @@ private struct AiReasoningDisclosure: View {
                     .foregroundColor(AppTheme.textSecondary.opacity(0.88))
                     .lineSpacing(3)
                     .lineLimit(4)
+                    .truncationMode(.tail)
                     .textSelection(.enabled)
                     .padding(.leading, 17)
-                    .mask {
-                        LinearGradient(
-                            colors: [.white, .white, .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    }
             }
         }
         .padding(.horizontal, 11)
