@@ -44,10 +44,10 @@ struct AiChatInputBar: View {
                             viewModel.stopGeneration()
                         } label: {
                             Image(systemName: "stop.fill")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
                                 .frame(width: 28, height: 28)
                         }
-                        .buttonStyle(ComposerPrimaryButtonStyle())
+                        .buttonStyle(ComposerSendButtonStyle())
                         .help("停止生成")
                         .accessibilityLabel("停止生成")
                     } else {
@@ -55,12 +55,12 @@ struct AiChatInputBar: View {
                             viewModel.submitFollowUp()
                         } label: {
                             HaxIcon(asset: .send)
-                                .frame(width: 13, height: 13)
+                                .frame(width: 14, height: 14)
                                 .frame(width: 28, height: 28)
                         }
-                        .buttonStyle(ComposerPrimaryButtonStyle())
+                        .buttonStyle(ComposerSendButtonStyle())
                         .disabled(!viewModel.canSubmitFollowUp)
-                        .opacity(viewModel.canSubmitFollowUp ? 1 : 0.42)
+                        .opacity(viewModel.canSubmitFollowUp ? 1 : 0.32)
                         .help("发送")
                         .accessibilityLabel("发送")
                     }
@@ -91,11 +91,11 @@ private struct ComposerIconButtonStyle: ButtonStyle {
     }
 }
 
-private struct ComposerPrimaryButtonStyle: ButtonStyle {
+private struct ComposerSendButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundColor(.white)
-            .background(AppTheme.accent.opacity(configuration.isPressed ? 0.72 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundColor(AppTheme.textPrimary)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.5 : 1)
     }
 }
