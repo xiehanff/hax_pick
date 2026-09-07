@@ -22,35 +22,49 @@ final class ChatFollowTailStateTests: XCTestCase {
         XCTAssertTrue(state.isFollowingTail)
     }
 
-    func testReturningToViewportBottomRestoresFollowingAutomatically() {
+    func testReturningTowardTailWithinThresholdRestoresFollowing() {
         var state = ChatFollowTailState()
         state.userDidScroll()
         XCTAssertFalse(state.isFollowingTail)
 
         XCTAssertFalse(
             state.tailPositionDidChange(
-                tailMaxY: 520,
-                viewportHeight: 420
+                extentAfter: 120,
+                movingTowardTail: true
             )
         )
         XCTAssertFalse(state.isFollowingTail)
 
         XCTAssertTrue(
             state.tailPositionDidChange(
-                tailMaxY: 448,
-                viewportHeight: 420
+                extentAfter: 40,
+                movingTowardTail: true
             )
         )
         XCTAssertTrue(state.isFollowingTail)
     }
 
-    func testTailGeometryDoesNotChangeAnAlreadyFollowingState() {
+    func testMovingAwayFromTailDoesNotImmediatelyResumeInsideThreshold() {
+        var state = ChatFollowTailState()
+        state.userDidScroll()
+        XCTAssertFalse(state.isFollowingTail)
+
+        XCTAssertFalse(
+            state.tailPositionDidChange(
+                extentAfter: 24,
+                movingTowardTail: false
+            )
+        )
+        XCTAssertFalse(state.isFollowingTail)
+    }
+
+    func testTailMetricDoesNotChangeAnAlreadyFollowingState() {
         var state = ChatFollowTailState()
 
         XCTAssertFalse(
             state.tailPositionDidChange(
-                tailMaxY: 410,
-                viewportHeight: 420
+                extentAfter: 0,
+                movingTowardTail: true
             )
         )
         XCTAssertTrue(state.isFollowingTail)
