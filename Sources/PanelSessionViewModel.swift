@@ -70,7 +70,7 @@ final class PanelSessionViewModel: ObservableObject {
     func reset(with text: String) {
         aiSession.clear()
         isDismissed = false
-n        selectedText = text
+        selectedText = text
         followUpInput = ""
         isOriginalExpanded = false
         mode = .toolbar
