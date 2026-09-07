@@ -45,15 +45,23 @@ struct SettingsContentView: View {
                     appState.refreshPermissionStatus()
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 6) {
+                        Text("DeepSeek API Key")
+                        Spacer()
+                        Text(appState.apiKey.isEmpty ? "未配置" : "已配置")
+                            .foregroundColor(appState.apiKey.isEmpty ? .orange : .green)
+                    }
+
                     HStack(spacing: 7) {
                         Group {
                             if apiKeyVisible {
-                                TextField("DeepSeek API Key", text: $apiKeyDraft)
+                                TextField("粘贴 API Key", text: $apiKeyDraft)
                             } else {
-                                SecureField("DeepSeek API Key", text: $apiKeyDraft)
+                                SecureField("粘贴 API Key", text: $apiKeyDraft)
                             }
                         }
+                        .labelsHidden()
                         .textFieldStyle(.roundedBorder)
 
                         Button {
@@ -75,15 +83,12 @@ struct SettingsContentView: View {
                         }
                     }
 
-                    HStack(spacing: 6) {
-                        Text(appState.apiKey.isEmpty ? "未配置" : "已配置")
-                            .foregroundColor(appState.apiKey.isEmpty ? .orange : .green)
-                        Text(apiKeyStatusMessage)
-                            .foregroundColor(.secondary)
-                    }
-                    .font(.footnote)
-                    .lineLimit(2)
+                    Text(apiKeyStatusMessage)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.vertical, 2)
             }
 
             Section("关于") {

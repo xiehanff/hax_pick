@@ -31,7 +31,7 @@ struct HaxPickApp: App {
 
         Window("HaxPick 设置", id: "haxpick-settings") {
             SettingsContentView(appState: appState)
-                .frame(width: 340)
+                .frame(width: 380)
         }
     }
 }
