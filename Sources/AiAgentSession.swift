@@ -366,6 +366,8 @@ final class AiAgentSession: ObservableObject {
             return .translation
         case .explain:
             return .lowReasoning
+        case .deepDive:
+            return .deepDive
         default:
             return .standard
         }
