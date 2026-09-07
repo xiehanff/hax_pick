@@ -6,6 +6,8 @@ struct ResultPanelView: View {
 
     private let tailID = "ai-chat-tail"
     @State private var followTailState = ChatFollowTailState()
+    @State private var conversationViewportHeight: CGFloat = 0
+    @State private var tailMaxY: CGFloat = .greatestFiniteMagnitude
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -44,7 +46,11 @@ struct ResultPanelView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(viewModel.currentAction?.rawValue ?? "AI 对话")
                     .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundColor(AppTheme.textPrimary)
+                    .foregroundColor(
+                        viewModel.currentAction == .deepDive
+                            ? AppTheme.textPrimary.opacity(0.78)
+                            : AppTheme.textPrimary
+                    )
 
                 HStack(spacing: 5) {
                     Circle()
@@ -83,7 +89,8 @@ struct ResultPanelView: View {
                         ForEach(viewModel.conversationMessages) { message in
                             AiMessageBubble(
                                 message: message,
-                                isStreaming: message.id == viewModel.streamingAssistantID
+                                isStreaming: message.id == viewModel.streamingAssistantID,
+                                assistantContentOpacity: viewModel.currentAction == .deepDive ? 0.78 : 1
                             )
                         }
 
@@ -116,15 +123,33 @@ struct ResultPanelView: View {
 
                         Color.clear
                             .frame(height: 1)
+                            .background {
+                                GeometryReader { geometry in
+                                    Color.clear.preference(
+                                        key: ConversationTailMaxYPreferenceKey.self,
+                                        value: geometry.frame(
+                                            in: .named(ConversationScrollCoordinateSpace.name)
+                                        ).maxY
+                                    )
+                                }
+                            }
                             .id(tailID)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .coordinateSpace(name: ConversationScrollCoordinateSpace.name)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: ConversationViewportHeightPreferenceKey.self,
+                            value: geometry.size.height
+                        )
+                    }
+                }
                 .background(
                     ManualScrollInteractionMonitor {
-                        guard followTailState.isFollowingTail else { return }
                         followTailState.userDidScroll()
                         viewModel.pauseStreamingPresentation()
                     }
@@ -142,6 +167,26 @@ struct ResultPanelView: View {
                     }
                     .buttonStyle(ReturnToLatestButtonStyle())
                     .padding(10)
+                }
+            }
+            .onPreferenceChange(ConversationViewportHeightPreferenceKey.self) { height in
+                conversationViewportHeight = height
+            }
+            .onPreferenceChange(ConversationTailMaxYPreferenceKey.self) { maxY in
+                let previousMaxY = tailMaxY
+                tailMaxY = maxY
+
+                guard previousMaxY.isFinite else { return }
+                let movingTowardTail = maxY < previousMaxY - 0.5
+                let extentAfter = max(0, maxY - conversationViewportHeight)
+                guard followTailState.tailPositionDidChange(
+                    extentAfter: extentAfter,
+                    movingTowardTail: movingTowardTail
+                ) else { return }
+
+                viewModel.resumeStreamingPresentation()
+                DispatchQueue.main.async {
+                    proxy.scrollTo(tailID, anchor: .bottom)
                 }
             }
             .onChange(of: scrollSignal) { _ in
@@ -229,6 +274,26 @@ struct ResultPanelView: View {
     }
 }
 
+private enum ConversationScrollCoordinateSpace {
+    static let name = "ai-conversation-scroll"
+}
+
+private struct ConversationViewportHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ConversationTailMaxYPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 private struct SourceTurnBubble: View {
     @ObservedObject var viewModel: PanelSessionViewModel
 
@@ -236,11 +301,11 @@ private struct SourceTurnBubble: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(viewModel.currentAction?.rawValue ?? "原文")
                 .font(.system(size: 9.5, weight: .semibold))
-                .foregroundColor(Color.white.opacity(0.62))
+                .foregroundColor(Color.white.opacity(0.56))
 
             Text(viewModel.selectedText)
                 .font(.system(size: 12.5))
-                .foregroundColor(Color.white.opacity(0.94))
+                .foregroundColor(Color.white.opacity(0.86))
                 .lineSpacing(3)
                 .lineLimit(viewModel.isOriginalExpanded ? nil : 6)
                 .textSelection(.enabled)
@@ -251,7 +316,7 @@ private struct SourceTurnBubble: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundColor(Color.white.opacity(0.76))
+                .foregroundColor(Color.white.opacity(0.70))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -400,6 +465,7 @@ private struct ReturnToLatestButtonStyle: ButtonStyle {
 
 struct ChatFollowTailState: Equatable {
     private(set) var isFollowingTail = true
+    static let resumeThreshold: CGFloat = 80
 
     mutating func userDidScroll() {
         guard isFollowingTail else { return }
@@ -414,6 +480,22 @@ struct ChatFollowTailState: Equatable {
     mutating func resume() {
         guard !isFollowingTail else { return }
         isFollowingTail = true
+    }
+
+    @discardableResult
+    mutating func tailPositionDidChange(
+        extentAfter: CGFloat,
+        movingTowardTail: Bool
+    ) -> Bool {
+        guard !isFollowingTail,
+              movingTowardTail,
+              extentAfter.isFinite,
+              extentAfter <= Self.resumeThreshold else {
+            return false
+        }
+
+        isFollowingTail = true
+        return true
     }
 }
 
