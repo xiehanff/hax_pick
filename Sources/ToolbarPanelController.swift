@@ -51,6 +51,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         panel.setFrameOrigin(clampedOrigin(for: screenPoint, mode: viewModel.mode))
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = viewModel.mode == .toolbar
+        panel.invalidateShadow()
         present(panel: panel, for: viewModel.mode)
         self.panel = panel
         installKeyMonitorIfNeeded()
@@ -66,6 +67,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         panel.setFrameOrigin(clampedOrigin(for: currentAnchorPoint, mode: mode))
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = mode == .toolbar
+        panel.invalidateShadow()
         present(panel: panel, for: mode)
     }
 
@@ -76,6 +78,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
+        panel.appearance = AppTheme.windowAppearance
         panel.title = "HaxPick"
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
@@ -87,7 +90,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         panel.delegate = self
         return panel
     }
