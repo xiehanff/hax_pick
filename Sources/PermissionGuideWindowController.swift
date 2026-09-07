@@ -35,6 +35,7 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
+        panel.appearance = AppTheme.windowAppearance
         panel.delegate = self
         panel.title = "HaxPick 权限引导"
         panel.titleVisibility = .hidden
@@ -47,9 +48,10 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         panel.contentViewController = controller
         panel.center()
+        panel.invalidateShadow()
 
         self.panel = panel
         UserDefaults.standard.set(true, forKey: Self.hasShownKey)
