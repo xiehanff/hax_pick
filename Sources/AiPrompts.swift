@@ -131,6 +131,8 @@ enum AiPrompts {
             6. 涉及 API、术语或实现细节时，只讲与当前主题和示例直接相关的部分；不要无意义罗列参考手册。
             7. 区分确定事实、常见经验和推断；遇到输入信息不足时明确说明边界，不要编造不存在的细节。
             """
+        case .chat:
+            basePrompt = "你是一个通用问答助手。用户可以自由聊任何主题。请直接回答当前问题，保持准确、清晰、自然；需要展开时可以使用 Markdown，但不要为了形式强行分层，也不要假装拥有不存在的实时信息或工具能力。"
         case .summarize, .extract:
             basePrompt = "你是一个总结助手。请使用简体中文和清晰的 Markdown，先给一句总述，再提炼最重要的信息。不要为了凑结构重复内容。"
         case .polish:
@@ -142,7 +144,7 @@ enum AiPrompts {
         }
 
         return basePrompt
-            + " 后续用户消息都视为当前任务的继续提问，请结合原文和完整对话历史回答。 "
+            + " 后续用户消息都视为当前会话的继续提问，请结合完整对话历史回答。 "
             + paragraphInstruction
             + "\n\n"
             + AiResponseParser.followUpInstruction
@@ -157,6 +159,8 @@ enum AiPrompts {
             prompt = "请用简洁中文解释下面内容，并补充理解它所需的必要背景：\n\n\(text)"
         case .deepDive:
             prompt = "请以零基础新手的视角，深入讲解下面内容。用通俗语言、具体例子和必要对比，按既定教学规则把概念真正讲透：\n\n\(text)"
+        case .chat:
+            prompt = text
         case .summarize:
             prompt = "请总结下面内容，先给一句总述，再列出最重要的要点：\n\n\(text)"
         case .polish:
