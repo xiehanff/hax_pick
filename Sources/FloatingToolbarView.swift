@@ -13,6 +13,7 @@ final class FloatingToolbarView: NSView {
         self.viewModel = viewModel
         super.init(frame: .zero)
         autoresizingMask = [.width, .height]
+        appearance = AppTheme.windowAppearance
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
         observation = viewModel.objectWillChange.sink { [weak self] _ in
@@ -34,6 +35,12 @@ final class FloatingToolbarView: NSView {
         let cornerRadius: CGFloat = mode == .toolbar
             ? FloatingPanelLayout.toolbarSize.height / 2
             : AppTheme.resultCorner
+
+        // The borderless window itself is transparent. Clip the root content
+        // view as well as the glass view so the system never exposes square
+        // corners around the custom surface.
+        applyContinuousCornerRadius(cornerRadius, background: .clear)
+
         let glass = HaxGlassView(style: .light, cornerRadius: cornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glass)
@@ -49,7 +56,7 @@ final class FloatingToolbarView: NSView {
                 background: AppTheme.panelContent
             )
             toolbar.layer?.borderWidth = 0.75
-            toolbar.layer?.borderColor = NSColor.white.withAlphaComponent(0.78).cgColor
+            toolbar.layer?.borderColor = AppTheme.border.cgColor
             glass.contentView.addSubview(toolbar)
             toolbar.pinEdges(to: glass.contentView)
         case .result:
@@ -66,16 +73,17 @@ final class FloatingToolbarView: NSView {
     private func makeToolbar() -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        container.appearance = AppTheme.windowAppearance
 
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 6
+        row.spacing = 7
         row.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(row)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 22),
-            row.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -4),
+            row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
+            row.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -10),
             row.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
 
@@ -96,10 +104,11 @@ final class FloatingToolbarView: NSView {
             target: nil,
             action: nil,
             font: .systemFont(ofSize: 12, weight: .semibold),
-            color: .black
+            color: AppTheme.textPrimary
         )
         polish.toolTip = "暂未实现"
         polish.isEnabled = false
+        polish.alphaValue = 0.34
         row.addArrangedSubview(polish)
         return container
     }
@@ -122,11 +131,14 @@ private final class ToolbarActionButton: NSButton {
         self.handler = handler
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        appearance = AppTheme.windowAppearance
         title = action.rawValue
         isBordered = false
         focusRingType = .none
-        font = .systemFont(ofSize: 12, weight: .semibold)
-        contentTintColor = NSColor.black.withAlphaComponent(0.9)
+        let titleFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        font = titleFont
+        setHaxTitle(action.rawValue, color: AppTheme.textPrimary, font: titleFont)
+        contentTintColor = AppTheme.textPrimary
         target = self
         self.action = #selector(runAction)
         heightAnchor.constraint(equalToConstant: 32).isActive = true
