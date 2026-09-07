@@ -55,28 +55,17 @@ struct ResultPanelView: View {
                         .foregroundColor(AppTheme.textSecondary)
                 }
             }
-
-            Spacer(minLength: 8)
-
-            Button {
-                viewModel.copyOriginalText()
-            } label: {
-                HaxIcon(asset: .copy)
-                    .frame(width: 12, height: 12)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(HeaderIconButtonStyle())
-            .help("复制原文")
-            .accessibilityLabel("复制原文")
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 viewModel.close()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .frame(width: 26, height: 26)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 28, height: 28)
             }
-            .buttonStyle(HeaderIconButtonStyle())
+            .buttonStyle(CloseButtonStyle())
             .help("关闭")
             .accessibilityLabel("关闭")
         }
@@ -238,49 +227,32 @@ private struct SourceTurnBubble: View {
     @ObservedObject var viewModel: PanelSessionViewModel
 
     var body: some View {
-        HStack(alignment: .top) {
-            Spacer(minLength: 54)
+        VStack(alignment: .leading, spacing: 7) {
+            Text(viewModel.currentAction?.rawValue ?? "原文")
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundColor(AppTheme.textSecondary)
 
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 6) {
-                    Text(viewModel.currentAction?.rawValue ?? "原文")
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .foregroundColor(AppTheme.textSecondary)
+            Text(viewModel.selectedText)
+                .font(.system(size: 12.5))
+                .foregroundColor(AppTheme.textPrimary)
+                .lineSpacing(3)
+                .lineLimit(viewModel.isOriginalExpanded ? nil : 6)
+                .textSelection(.enabled)
 
-                    Spacer(minLength: 8)
-
-                    Button {
-                        viewModel.copyOriginalText()
-                    } label: {
-                        HaxIcon(asset: .copy)
-                            .frame(width: 11, height: 11)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(AppTheme.textSecondary)
-                    .help("复制原文")
+            if viewModel.selectedText.count > 180 {
+                Button(viewModel.isOriginalExpanded ? "收起" : "展开原文") {
+                    viewModel.toggleOriginalExpanded()
                 }
-
-                Text(viewModel.selectedText)
-                    .font(.system(size: 12.5))
-                    .foregroundColor(AppTheme.textPrimary)
-                    .lineSpacing(3)
-                    .lineLimit(viewModel.isOriginalExpanded ? nil : 6)
-                    .textSelection(.enabled)
-
-                if viewModel.selectedText.count > 180 {
-                    Button(viewModel.isOriginalExpanded ? "收起" : "展开原文") {
-                        viewModel.toggleOriginalExpanded()
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundColor(AppTheme.accent)
-                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundColor(AppTheme.accent)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(AppTheme.mutedBg)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(AppTheme.mutedBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -386,11 +358,10 @@ private struct SuggestionButtonStyle: ButtonStyle {
     }
 }
 
-private struct HeaderIconButtonStyle: ButtonStyle {
+private struct CloseButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundColor(AppTheme.textSecondary)
-            .background(AppTheme.mutedBg.opacity(configuration.isPressed ? 0.9 : 0.58))
+            .background(Color.black.opacity(configuration.isPressed ? 0.68 : 0.86))
             .clipShape(Circle())
     }
 }
