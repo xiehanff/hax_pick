@@ -35,6 +35,7 @@ final class PanelSessionViewModel: ObservableObject {
     var currentAction: AiToolAction? { aiSession.currentAction }
     var conversationMessages: [AiMessage] { aiSession.visibleMessages }
     var lastAssistantContent: String? { aiSession.lastAssistantContent }
+    var suggestions: [String] { aiSession.lastAssistantSuggestions }
     var streamingAssistantID: UUID? { aiSession.streamingAssistantID }
     var isLoading: Bool { aiSession.isLoading }
     var errorMessage: String? { aiSession.errorMessage }
@@ -45,19 +46,15 @@ final class PanelSessionViewModel: ObservableObject {
     var requestRevision: Int { aiSession.requestRevision }
 
     var titleText: String {
-        currentAction?.resultTitle ?? "划词助手"
+        currentAction?.resultTitle ?? "AI 对话"
     }
 
     var statusHint: String {
-        if isLoading { return "正在生成..." }
-        if didStop {
-            return lastAssistantContent == nil
-                ? "已停止，可重新生成"
-                : "已停止，可继续使用当前结果"
-        }
-        if errorMessage != nil { return "请求失败，可重试" }
-        if lastAssistantContent != nil { return "生成完成" }
-        return "请选择动作"
+        if isLoading { return "正在生成" }
+        if didStop { return "已停止" }
+        if errorMessage != nil { return "请求失败" }
+        if lastAssistantContent != nil { return "已完成" }
+        return "等待开始"
     }
 
     var canSubmitFollowUp: Bool {
@@ -66,15 +63,14 @@ final class PanelSessionViewModel: ObservableObject {
             !isLoading
     }
 
-    var suggestions: [String] {
-        guard !isLoading, lastAssistantContent != nil else { return [] }
-        return currentAction?.suggestions ?? []
+    var canStartNewConversation: Bool {
+        currentAction != nil && !isLoading
     }
 
     func reset(with text: String) {
         aiSession.clear()
         isDismissed = false
-        selectedText = text
+n        selectedText = text
         followUpInput = ""
         isOriginalExpanded = false
         mode = .toolbar
@@ -102,6 +98,14 @@ final class PanelSessionViewModel: ObservableObject {
     func stopGeneration() {
         guard !isDismissed else { return }
         aiSession.stopGeneration()
+    }
+
+    /// 新会话保留当前划词原文和任务类型，但清空旧问答并重新生成第一轮。
+    func startNewConversation() {
+        guard !isDismissed, !isLoading, let action = currentAction else { return }
+        followUpInput = ""
+        isOriginalExpanded = false
+        aiSession.runToolAction(action, sourceText: selectedText)
     }
 
     func submitFollowUp() {
