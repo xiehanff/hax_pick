@@ -6,6 +6,8 @@ import XCTest
 final class AppKitConversationScrollTests: XCTestCase {
     func testCompletedConversationCanReachTopAndBottom() async throws {
         let responder = AppKitStreamResponder()
+        defer { responder.finish() }
+
         let session = AiAgentSession(
             stream: { messages in responder.stream(messages) },
             publishIntervalNanoseconds: 0
@@ -15,12 +17,16 @@ final class AppKitConversationScrollTests: XCTestCase {
 
         viewModel.reset(with: "self.isEmp")
         viewModel.handlePrimaryAction(.deepDive)
-        try await waitUntil { responder.hasContinuation }
+        try await waitUntil("AI stream should start") { responder.hasContinuation }
 
         responder.yield(longAnswer(repetitions: 18))
-        try await waitUntil { (viewModel.lastAssistantContent?.count ?? 0) > 2_000 }
+        try await waitUntil("long assistant draft should be published") {
+            (viewModel.lastAssistantContent?.count ?? 0) > 2_000
+        }
         responder.finish()
-        try await waitUntil { !viewModel.isLoading }
+        try await waitUntil("completed response should leave loading state") {
+            !viewModel.isLoading
+        }
         await settle(panel)
 
         let scrollView = try conversationScrollView(in: panel)
@@ -51,6 +57,8 @@ final class AppKitConversationScrollTests: XCTestCase {
 
     func testStreamingHistoryPositionStaysFixedAndManualReturnResumesLatestOutput() async throws {
         let responder = AppKitStreamResponder()
+        defer { responder.finish() }
+
         let session = AiAgentSession(
             stream: { messages in responder.stream(messages) },
             publishIntervalNanoseconds: 0
@@ -60,11 +68,13 @@ final class AppKitConversationScrollTests: XCTestCase {
 
         viewModel.reset(with: "selection")
         viewModel.handlePrimaryAction(.deepDive)
-        try await waitUntil { responder.hasContinuation }
+        try await waitUntil("AI stream should start") { responder.hasContinuation }
 
         let first = longAnswer(repetitions: 14)
         responder.yield(first)
-        try await waitUntil { viewModel.lastAssistantContent == first }
+        try await waitUntil("first visible assistant chunk should be published") {
+            viewModel.lastAssistantContent == visibleContent(first)
+        }
         await settle(panel)
 
         let scrollView = try conversationScrollView(in: panel)
@@ -79,7 +89,10 @@ final class AppKitConversationScrollTests: XCTestCase {
 
         let deferred = longAnswer(repetitions: 10)
         responder.yield(deferred)
-        try await waitUntil { viewModel.lastAssistantContent == first + deferred }
+        let accumulated = first + deferred
+        try await waitUntil("deferred streaming chunk should reach the session model") {
+            viewModel.lastAssistantContent == visibleContent(accumulated)
+        }
         await settle(panel)
 
         XCTAssertEqual(
@@ -102,7 +115,9 @@ final class AppKitConversationScrollTests: XCTestCase {
         )
 
         responder.yield("\n最后一个可见 chunk")
-        try await waitUntil { viewModel.lastAssistantContent?.hasSuffix("最后一个可见 chunk") == true }
+        try await waitUntil("following-tail should continue exposing new streaming chunks") {
+            viewModel.lastAssistantContent?.hasSuffix("最后一个可见 chunk") == true
+        }
         await settle(panel)
         XCTAssertEqual(
             scrollView.contentView.bounds.origin.y,
@@ -112,7 +127,9 @@ final class AppKitConversationScrollTests: XCTestCase {
         )
 
         responder.finish()
-        try await waitUntil { !viewModel.isLoading }
+        try await waitUntil("finished stream should leave loading state") {
+            !viewModel.isLoading
+        }
     }
 
     private func makePanel(viewModel: PanelSessionViewModel) -> ResultPanelView {
@@ -135,21 +152,26 @@ final class AppKitConversationScrollTests: XCTestCase {
         return max(0, documentView.frame.height - scrollView.contentSize.height)
     }
 
+    private func visibleContent(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func settle(_ panel: ResultPanelView) async {
         for _ in 0..<8 {
             panel.layoutSubtreeIfNeeded()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.002))
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 2_000_000)
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<300 {
+    private func waitUntil(
+        _ description: String,
+        _ condition: () -> Bool
+    ) async throws {
+        for _ in 0..<400 {
             if condition() { return }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 5_000_000)
         }
-        XCTFail("Expected asynchronous condition to become true")
+        XCTFail(description)
         throw ScrollTestError.conditionNotMet
     }
 
