@@ -58,7 +58,13 @@ private final class CancellationProbeHTTPClient: DeepSeekStreamingHTTPClient {
     private let response: URLResponse
     private var continuation: AsyncThrowingStream<String, Error>.Continuation?
     private let lock = NSLock()
-    private(set) var didTerminate = false
+    private var _didTerminate = false
+
+    var didTerminate: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _didTerminate
+    }
 
     init(
         started: XCTestExpectation,
@@ -79,8 +85,8 @@ private final class CancellationProbeHTTPClient: DeepSeekStreamingHTTPClient {
             continuation.onTermination = { [weak self] _ in
                 guard let self else { return }
                 self.lock.lock()
-                let shouldFulfill = !self.didTerminate
-                self.didTerminate = true
+                let shouldFulfill = !self._didTerminate
+                self._didTerminate = true
                 self.lock.unlock()
                 if shouldFulfill {
                     self.terminated.fulfill()
