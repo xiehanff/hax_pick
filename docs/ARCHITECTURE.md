@@ -68,15 +68,15 @@ HaxPickApp
 
 1. `mouseDown` 保存拖动起点与当时的焦点元素，避免浮层出现后焦点变化导致丢失目标。
 2. 拖动达到阈值后，在 `mouseDragged` 阶段立即读取 Accessibility 选区；若首次尚未形成选区，35ms 后重试。
-3. 拖动阶段的 AX 通道仍失败时，浏览器、IDE、Codex 或文本控件进入快速 ⌘C 兜底：只使用 CGEvent，最多等待 160ms。读到第一个词即可在鼠标仍按下时显示工具栏。
+3. 拖动阶段只读 AX，禁止模拟 ⌘C 干扰未结束的选区手势。AX 成功即可提前显示工具栏；失败则等待鼠标松开后兜底。
 4. `mouseUp` 再执行一次 AX 重试与完整 ⌘C 兜底（CGEvent + AppleScript，最多等待 400ms），用于把拖动中显示的局部文本更新为最终选区。
 
-AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动起点下方的元素及各自父层级，覆盖网页的 `AXWebArea` / `AXStaticText`、编辑器的 `AXTextArea` / `AXTextField`，以及 Chrome、Safari、Edge、Firefox、VS Code、Xcode、JetBrains、Codex 等已知文本应用。异步探测用 drag generation 隔离旧手势；被取消或超时的剪贴板探测会恢复原剪贴板内容。
+AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动起点下方的元素及各自父层级，覆盖网页的 `AXWebArea` / `AXStaticText`、编辑器的 `AXTextArea` / `AXTextField`，以及 Chrome、Safari、Edge、Firefox、VS Code、Xcode、JetBrains、Codex 等已知文本应用。异步探测用 drag generation 隔离旧手势，最终读取等待前后也检查 generation，避免旧结果覆盖新手势；模拟复制前检查左键状态，若已开始下一次拖动则跳过。被取消或超时的剪贴板探测会恢复原剪贴板内容。
 
 关键阈值：
 
 - 拖动距离 ≥ 3pt
-- 拖动阶段 AX 重试等待 35ms，快速剪贴板兜底上限 160ms
+- 拖动阶段 AX 重试等待 35ms，不执行剪贴板兜底
 - mouseUp 后等待 35ms，再进行最终选区校正
 - 同一文本 1.2s 内不重复触发
 - 关闭面板后的文本在下一次有效拖动前进入 ignored selection
@@ -90,7 +90,7 @@ AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动�
 
 尺寸由 `FloatingPanelLayout` 统一管理。
 
-`.toolbar` 不主动 activate，点击面板外会关闭；`.result` 使用 `activate + makeKeyAndOrderFront`，固定在当前屏幕右侧且保持 `hidesOnDeactivate = false`，点击侧栏外不会关闭。两种模式都可通过 ESC 关闭。
+`.toolbar` 不主动 activate，鼠标左键仍按下时使用 `ignoresMouseEvents` 穿透，监听 `leftMouseUp` 恢复点击（即使最终文本相同未重复发布）；点击面板外会关闭；`.result` 使用 `activate + makeKeyAndOrderFront`，固定在当前屏幕右侧且保持 `hidesOnDeactivate = false`，点击侧栏外不会关闭。两种模式都可通过 ESC 关闭。
 
 ## Liquid Glass 兼容层
 

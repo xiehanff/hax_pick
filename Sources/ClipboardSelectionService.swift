@@ -77,6 +77,9 @@ enum ClipboardSelectionService {
         timeout: TimeInterval,
         userCopyShortcutDetected: @escaping (Date) -> Bool
     ) async -> String? {
+        // 最终探测等待期间可能已经开始下一次拖动，不能向按住鼠标的应用注入按键。
+        guard !Task.isCancelled,
+              !CGEventSource.buttonState(.combinedSessionState, button: .left) else { return nil }
         let pasteboard = NSPasteboard.general
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
         let marker = "HaxPick-\(UUID().uuidString.prefix(8))"

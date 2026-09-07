@@ -12,7 +12,6 @@ final class SelectionMonitor {
     private let accessibilitySnapshotProvider: (AXUIElement?, NSPoint, NSPoint) -> TextSelectionSnapshot?
     private let shouldAttemptClipboardFallbackProvider: (AXUIElement?, NSPoint) -> Bool
     private let clipboardFallbackProvider: () async -> String?
-    private let earlyClipboardFallbackProvider: () async -> String?
 
     private var mouseUpMonitor: Any?
     private var mouseDownMonitor: Any?
@@ -40,8 +39,7 @@ final class SelectionMonitor {
             await ClipboardSelectionService.selectedTextBySimulatedCopy(
                 userCopyShortcutDetected: UserCopyShortcutTracker.shared.didDetectUserCopyShortcut
             )
-        },
-        earlyClipboardFallbackProvider: (() async -> String?)? = nil
+        }
     ) {
         self.onSelectionDetected = onSelectionDetected
         self.onSelectionMissed = onSelectionMissed
@@ -49,13 +47,6 @@ final class SelectionMonitor {
         self.accessibilitySnapshotProvider = accessibilitySnapshotProvider
         self.shouldAttemptClipboardFallbackProvider = shouldAttemptClipboardFallbackProvider
         self.clipboardFallbackProvider = clipboardFallbackProvider
-        self.earlyClipboardFallbackProvider = earlyClipboardFallbackProvider ?? {
-            await ClipboardSelectionService.selectedTextBySimulatedCopy(
-                allowAppleScriptFallback: false,
-                timeout: 0.16,
-                userCopyShortcutDetected: UserCopyShortcutTracker.shared.didDetectUserCopyShortcut
-            )
-        }
     }
 
     func start() {
@@ -146,20 +137,8 @@ final class SelectionMonitor {
             return nil
         }
 
-        if let snapshot = accessibilitySnapshotProvider(focusedElement, dragStartPoint, currentPoint) {
-            return snapshot
-        }
-
-        guard shouldAttemptClipboardFallbackProvider(focusedElement, currentPoint) else {
-            return nil
-        }
-        guard let text = await earlyClipboardFallbackProvider() else {
-            return nil
-        }
-        return TextSelectionSnapshot(
-            text: text,
-            anchorPoint: dragStartPoint.midpoint(to: currentPoint)
-        )
+        // 拖动期间只读 AX；模拟 ⌘C 会干扰目标应用尚未结束的选区手势。
+        return accessibilitySnapshotProvider(focusedElement, dragStartPoint, currentPoint)
     }
 
     func handleMouseUp(releasePoint: NSPoint) {
@@ -197,12 +176,15 @@ final class SelectionMonitor {
                 return
             }
 
-            if let snapshot = await self.resolveSelectionSnapshot(
+            guard self.dragGeneration == generation else { return }
+            let snapshot = await self.resolveSelectionSnapshot(
                 earlyAccessibilitySnapshot: earlyAccessibilitySnapshot,
                 focusedElement: focusedElement,
                 dragStartPoint: dragStartPoint,
                 releasePoint: releasePoint
-            ) {
+            )
+            guard self.dragGeneration == generation else { return }
+            if let snapshot {
                 self.consume(snapshot: snapshot)
                 return
             }

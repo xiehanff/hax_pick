@@ -146,8 +146,11 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
     private func present(panel: HaxPickPanel, for mode: PanelSessionViewModel.PanelMode) {
         switch mode {
         case .toolbar:
+            // 提前展示不能截获原应用正在进行的划词手势。
+            panel.ignoresMouseEvents = NSEvent.pressedMouseButtons & 1 != 0
             panel.orderFrontRegardless()
         case .result:
+            panel.ignoresMouseEvents = false
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
         }
@@ -163,12 +166,12 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         }
 
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown],
+            matching: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .otherMouseDown],
             handler: handler
         )
 
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            matching: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .otherMouseDown]
         ) { [weak self] event in
             self?.handleMouseEvent(event)
             return event
@@ -178,6 +181,10 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
     private func handleMouseEvent(_ event: NSEvent) {
         guard let panel, panel.isVisible else { return }
         guard sessionViewModel?.mode == .toolbar else { return }
+        if event.type == .leftMouseUp {
+            panel.ignoresMouseEvents = false
+            return
+        }
         let location = event.locationInWindow
 
         if event.window == panel {
