@@ -122,12 +122,15 @@ struct ResultPanelView: View {
                 }
                 .background(
                     ManualScrollInteractionMonitor {
+                        guard followTailState.isFollowingTail else { return }
                         followTailState.userDidScroll()
+                        viewModel.pauseStreamingPresentation()
                     }
                 )
 
                 if !followTailState.isFollowingTail {
                     Button {
+                        viewModel.resumeStreamingPresentation()
                         followTailState.resume()
                         DispatchQueue.main.async {
                             proxy.scrollTo(tailID, anchor: .bottom)
@@ -146,6 +149,7 @@ struct ResultPanelView: View {
                 }
             }
             .onChange(of: viewModel.requestRevision) { _ in
+                viewModel.resumeStreamingPresentation()
                 followTailState.requestDidStart()
                 DispatchQueue.main.async {
                     proxy.scrollTo(tailID, anchor: .bottom)
@@ -396,14 +400,17 @@ struct ChatFollowTailState: Equatable {
     private(set) var isFollowingTail = true
 
     mutating func userDidScroll() {
+        guard isFollowingTail else { return }
         isFollowingTail = false
     }
 
     mutating func requestDidStart() {
+        guard !isFollowingTail else { return }
         isFollowingTail = true
     }
 
     mutating func resume() {
+        guard !isFollowingTail else { return }
         isFollowingTail = true
     }
 }

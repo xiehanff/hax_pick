@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import HaxPickApp
 
@@ -91,6 +92,45 @@ final class PanelSessionViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.suggestions, ["给我一个例子", "为什么这里容易误解？"])
         XCTAssertEqual(viewModel.conversationMessages.last?.content, "这是回答。")
+    }
+
+    func testStreamingPresentationDefersRebuildsWhileReadingHistory() async throws {
+        let responder = DeferredPanelStreamResponder()
+        let session = AiAgentSession(
+            stream: { messages in responder.stream(messages) },
+            publishIntervalNanoseconds: 0
+        )
+        let viewModel = PanelSessionViewModel(aiSession: session, onClose: {})
+
+        viewModel.reset(with: "selection")
+        viewModel.handlePrimaryAction(.explain)
+        try await waitUntil { responder.hasPendingStream }
+
+        responder.yield("A")
+        try await waitUntil { viewModel.lastAssistantContent == "A" }
+
+        var forwardedUpdates = 0
+        let observation = viewModel.objectWillChange.sink {
+            forwardedUpdates += 1
+        }
+
+        viewModel.pauseStreamingPresentation()
+        let baseline = forwardedUpdates
+
+        responder.yield("B")
+        responder.yield("C")
+        try await waitUntil { viewModel.lastAssistantContent == "ABC" }
+        await Task.yield()
+
+        XCTAssertEqual(forwardedUpdates, baseline)
+
+        viewModel.resumeStreamingPresentation()
+        XCTAssertGreaterThan(forwardedUpdates, baseline)
+
+        responder.finish()
+        try await waitUntil { !viewModel.isLoading }
+        XCTAssertEqual(viewModel.lastAssistantContent, "ABC")
+        _ = observation
     }
 
     func testStopBeforeFirstChunkShowsStoppedState() async throws {
@@ -188,5 +228,14 @@ private final class DeferredPanelStreamResponder {
         AsyncThrowingStream { continuation in
             self.continuation = continuation
         }
+    }
+
+    func yield(_ value: String) {
+        continuation?.yield(value)
+    }
+
+    func finish() {
+        continuation?.finish()
+        continuation = nil
     }
 }
