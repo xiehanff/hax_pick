@@ -46,6 +46,7 @@ struct DeepSeekService {
         case standard
         case translation
         case lowReasoning
+        case deepDive
 
         var thinkingType: String? {
             switch self {
@@ -53,7 +54,7 @@ struct DeepSeekService {
                 return nil
             case .translation:
                 return "disabled"
-            case .lowReasoning:
+            case .lowReasoning, .deepDive:
                 return "enabled"
             }
         }
@@ -62,7 +63,16 @@ struct DeepSeekService {
             switch self {
             case .lowReasoning:
                 return "low"
-            case .standard, .translation:
+            case .standard, .translation, .deepDive:
+                return nil
+            }
+        }
+
+        var maxTokens: Int? {
+            switch self {
+            case .deepDive:
+                return 32768
+            case .standard, .translation, .lowReasoning:
                 return nil
             }
         }
@@ -208,7 +218,8 @@ struct DeepSeekService {
             },
             stream: true,
             thinking: mode.thinkingType.map(ThinkingConfiguration.init(type:)),
-            reasoningEffort: mode.reasoningEffort
+            reasoningEffort: mode.reasoningEffort,
+            maxTokens: mode.maxTokens
         )
 
         var request = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
@@ -286,6 +297,7 @@ private struct ChatRequest: Encodable {
     let stream: Bool
     let thinking: ThinkingConfiguration?
     let reasoningEffort: String?
+    let maxTokens: Int?
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -293,6 +305,7 @@ private struct ChatRequest: Encodable {
         case stream
         case thinking
         case reasoningEffort = "reasoning_effort"
+        case maxTokens = "max_tokens"
     }
 
     init(
@@ -300,13 +313,15 @@ private struct ChatRequest: Encodable {
         messages: [ChatMessage],
         stream: Bool,
         thinking: ThinkingConfiguration?,
-        reasoningEffort: String?
+        reasoningEffort: String?,
+        maxTokens: Int?
     ) {
         self.model = model
         self.messages = messages
         self.stream = stream
         self.thinking = thinking
         self.reasoningEffort = reasoningEffort
+        self.maxTokens = maxTokens
     }
 }
 
