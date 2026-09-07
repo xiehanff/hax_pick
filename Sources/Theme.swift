@@ -1,37 +1,35 @@
 import AppKit
-import SwiftUI
 
-// MARK: - Color hex 扩展
+// MARK: - Colors
 
-extension Color {
-    init(hex: UInt) {
+extension NSColor {
+    convenience init(hex: UInt, alpha: CGFloat = 1) {
         self.init(
-            red:   Double((hex >> 16) & 0xFF) / 255,
-            green: Double((hex >> 8)  & 0xFF) / 255,
-            blue:  Double(hex & 0xFF)        / 255
+            calibratedRed: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: alpha
         )
     }
 }
 
-// MARK: - Liquid Glass 主题
-
 enum AppTheme {
-    static let background     = Color(hex: 0xF6F6F7)
-    static let cardBg         = Color.white
-    static let panelContent   = Color.white.opacity(0.72)
-    static let mutedBg        = Color(hex: 0xF2F2F3)
-    static let accent         = Color(hex: 0xFF6B1A)
-    static let textPrimary    = Color(hex: 0x232427)
-    static let textSecondary  = Color(hex: 0x74767B)
-    static let border         = Color.black.opacity(0.085)
-    static let success        = Color(hex: 0x34C759)
+    static let background = NSColor(hex: 0xF6F6F7)
+    static let cardBg = NSColor.white
+    static let panelContent = NSColor.white.withAlphaComponent(0.78)
+    static let mutedBg = NSColor(hex: 0xF2F2F3)
+    static let accent = NSColor(hex: 0xFF6B1A)
+    static let textPrimary = NSColor(hex: 0x232427)
+    static let textSecondary = NSColor(hex: 0x74767B)
+    static let border = NSColor.black.withAlphaComponent(0.085)
+    static let success = NSColor(hex: 0x34C759)
 
     static let resultCorner: CGFloat = 28
     static let menuCorner: CGFloat = 18
     static let glassContentInset: CGFloat = 12
 }
 
-// MARK: - 悬浮面板尺寸
+// MARK: - Floating panel geometry
 
 enum FloatingPanelLayout {
     static let toolbarSize = NSSize(width: 420, height: 48)
@@ -44,228 +42,194 @@ enum FloatingPanelLayout {
     static let screenEdgeInset: CGFloat = 16
 }
 
-// MARK: - 共享 NSPanel 子类
-
 final class HaxPickPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
 
-// MARK: - NSHostingView 容器
-
-extension AppTheme {
-    /// 将 SwiftUI 视图包裹在固定尺寸的容器中，供 NSPanel 使用。
-    /// 圆角与边缘抗锯齿完全交给 SwiftUI 内部的 clipShape 绘制；这里不再叠加
-    /// CALayer.cornerRadius 硬裁剪——它没有抗锯齿且曲率与 continuous 圆角不一致，
-    /// 会在 1x 屏上把圆角边缘“咬”出锯齿。
-    static func makeHostingView<V: View>(rootView: V, size: NSSize) -> NSView {
-        let hosting = NSHostingView(rootView: rootView)
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        hosting.wantsLayer = true
-        hosting.layer?.backgroundColor = NSColor.clear.cgColor
-
-        let container = NSView(frame: NSRect(origin: .zero, size: size))
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.clear.cgColor
-        container.addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: container.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        return container
-    }
-}
-
-// MARK: - 跨版本玻璃材质
+// MARK: - AppKit glass surface
 
 enum HaxGlassStyle {
     case light
     case dark
 
-    var fallbackMaterial: NSVisualEffectView.Material {
+    var material: NSVisualEffectView.Material {
         switch self {
-        case .light:
-            return .underWindowBackground
-        case .dark:
-            return .hudWindow
+        case .light: return .underWindowBackground
+        case .dark: return .hudWindow
         }
     }
 
-    var fallbackTint: Color {
+    var solidFallback: NSColor {
         switch self {
-        case .light:
-            return .white.opacity(0.04)
-        case .dark:
-            return .black.opacity(0.72)
+        case .light: return NSColor(hex: 0xF5F5F7)
+        case .dark: return NSColor(hex: 0x34363A)
         }
     }
 
-    var solidFallback: Color {
+    var overlayTint: NSColor {
         switch self {
-        case .light:
-            return Color(hex: 0xF5F5F7)
-        case .dark:
-            return Color(hex: 0x34363A)
+        case .light: return NSColor.white.withAlphaComponent(0.08)
+        case .dark: return NSColor.black.withAlphaComponent(0.35)
         }
     }
 
-    var rimColor: Color {
+    var rimColor: NSColor {
         switch self {
-        case .light:
-            return .white.opacity(0.78)
-        case .dark:
-            return .white.opacity(0.22)
+        case .light: return NSColor.white.withAlphaComponent(0.78)
+        case .dark: return NSColor.white.withAlphaComponent(0.22)
         }
-    }
-
-    var bevelColor: Color {
-        switch self {
-        case .light:
-            return .black.opacity(0.055)
-        case .dark:
-            return .black.opacity(0.30)
-        }
-    }
-
-#if compiler(>=6.2)
-    var nativeTint: Color {
-        switch self {
-        case .light:
-            return .white.opacity(0.05)
-        case .dark:
-            return .black.opacity(0.30)
-        }
-    }
-#endif
-}
-
-private struct VisualEffectMaterialView: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-    let alpha: CGFloat
-    let isEmphasized: Bool
-
-    init(
-        material: NSVisualEffectView.Material,
-        alpha: CGFloat = 1,
-        isEmphasized: Bool = true
-    ) {
-        self.material = material
-        self.alpha = alpha
-        self.isEmphasized = isEmphasized
-    }
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.isEmphasized = isEmphasized
-        view.alphaValue = alpha
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.isEmphasized = isEmphasized
-        nsView.alphaValue = alpha
     }
 }
 
-struct HaxGlassSurface<Content: View>: View {
-    let style: HaxGlassStyle
-    let cornerRadius: CGFloat
-    let showsRim: Bool
-    @ViewBuilder let content: Content
+final class HaxGlassView: NSView {
+    let contentView = NSView()
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    private let effectView = NSVisualEffectView()
+    private let tintView = NSView()
+    private let style: HaxGlassStyle
+    private let cornerRadius: CGFloat
 
-    init(
-        style: HaxGlassStyle,
-        cornerRadius: CGFloat,
-        showsRim: Bool = true,
-        @ViewBuilder content: () -> Content
-    ) {
+    init(style: HaxGlassStyle, cornerRadius: CGFloat) {
         self.style = style
         self.cornerRadius = cornerRadius
-        self.showsRim = showsRim
-        self.content = content()
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = cornerRadius
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+        layer?.borderWidth = 0.75
+        layer?.borderColor = style.rimColor.cgColor
+
+        effectView.translatesAutoresizingMaskIntoConstraints = false
+        effectView.material = style.material
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+
+        tintView.translatesAutoresizingMaskIntoConstraints = false
+        tintView.wantsLayer = true
+        tintView.layer?.backgroundColor = style.overlayTint.cgColor
+
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.clear.cgColor
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            layer?.backgroundColor = style.solidFallback.cgColor
+        } else {
+            addSubview(effectView)
+            effectView.pinEdges(to: self)
+            addSubview(tintView)
+            tintView.pinEdges(to: self)
+        }
+
+        addSubview(contentView)
+        contentView.pinEdges(to: self)
     }
 
-    @ViewBuilder
-    var body: some View {
-#if compiler(>=6.2)
-        if #available(macOS 26.0, *), !reduceTransparency {
-            content
-                .glassEffect(
-                    .regular.tint(style.nativeTint),
-                    in: .rect(cornerRadius: cornerRadius)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class SoftDividerView: NSView {
+    init(color: NSColor = NSColor.black.withAlphaComponent(0.055)) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.backgroundColor = color.cgColor
+        heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class ToolbarDragHandleView: NSView {
+    override var intrinsicContentSize: NSSize { NSSize(width: 15, height: 15) }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.black.setFill()
+        let diameter: CGFloat = 2.5
+        let gap: CGFloat = 3
+        let total = diameter * 3 + gap * 2
+        let startX = (bounds.width - total) / 2
+        let startY = (bounds.height - total) / 2
+        for row in 0..<3 {
+            for column in 0..<3 {
+                let rect = NSRect(
+                    x: startX + CGFloat(column) * (diameter + gap),
+                    y: startY + CGFloat(row) * (diameter + gap),
+                    width: diameter,
+                    height: diameter
                 )
-                .glassRim(style: style, cornerRadius: cornerRadius, enabled: showsRim)
-        } else {
-            fallbackSurface
-        }
-#else
-        fallbackSurface
-#endif
-    }
-
-    private var fallbackSurface: some View {
-        content
-            .background {
-                if reduceTransparency {
-                    style.solidFallback
-                } else {
-                    VisualEffectMaterialView(
-                        material: style.fallbackMaterial
-                    )
-                    style.fallbackTint
-                }
+                NSBezierPath(ovalIn: rect).fill()
             }
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .compositingGroup()
-            .glassRim(style: style, cornerRadius: cornerRadius, enabled: showsRim)
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func glassRim(
-        style: HaxGlassStyle,
-        cornerRadius: CGFloat,
-        enabled: Bool
-    ) -> some View {
-        if enabled {
-            overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(style.rimColor, lineWidth: 1)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: max(cornerRadius - 2, 0), style: .continuous)
-                    .inset(by: 2)
-                    .stroke(style.bevelColor, lineWidth: 0.75)
-            }
-        } else {
-            self
         }
     }
 }
 
-// MARK: - 弱分隔线
+// MARK: - Shared AppKit helpers
 
-struct SoftDivider: View {
-    var horizontalInset: CGFloat = 18
+extension NSView {
+    func pinEdges(to view: NSView, insets: NSEdgeInsets = .init()) {
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: insets.left),
+            trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -insets.right),
+            topAnchor.constraint(equalTo: view.topAnchor, constant: insets.top),
+            bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -insets.bottom),
+        ])
+    }
 
-    var body: some View {
-        Rectangle()
-            .fill(Color.black.opacity(0.055))
-            .frame(height: 0.5)
-            .padding(.horizontal, horizontalInset)
+    func applyContinuousCornerRadius(_ radius: CGFloat, background: NSColor? = nil) {
+        wantsLayer = true
+        layer?.cornerRadius = radius
+        layer?.cornerCurve = .continuous
+        if let background {
+            layer?.backgroundColor = background.cgColor
+        }
     }
 }
 
-// MARK: - NSPoint 几何工具
+extension NSTextField {
+    static func haxLabel(
+        _ text: String,
+        font: NSFont,
+        color: NSColor = AppTheme.textPrimary,
+        alignment: NSTextAlignment = .left
+    ) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = font
+        label.textColor = color
+        label.alignment = alignment
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 0
+        return label
+    }
+}
+
+extension NSButton {
+    static func haxTextButton(
+        _ title: String,
+        target: AnyObject?,
+        action: Selector?,
+        font: NSFont = .systemFont(ofSize: 12, weight: .semibold),
+        color: NSColor = AppTheme.textPrimary
+    ) -> NSButton {
+        let button = NSButton(title: title, target: target, action: action)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isBordered = false
+        button.font = font
+        button.contentTintColor = color
+        button.focusRingType = .none
+        return button
+    }
+}
 
 extension NSPoint {
     func distance(to other: NSPoint) -> CGFloat {
@@ -274,87 +238,5 @@ extension NSPoint {
 
     func midpoint(to other: NSPoint) -> NSPoint {
         NSPoint(x: (x + other.x) / 2, y: (y + other.y) / 2)
-    }
-}
-
-// MARK: - 工具栏动作按钮
-
-struct ToolbarTextButton: View {
-    let title: String
-    var foregroundColor: Color = .black.opacity(0.9)
-
-    var body: some View {
-        Text(title)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(foregroundColor)
-            .padding(.horizontal, 8)
-            .frame(height: 32)
-            .fixedSize()
-    }
-}
-
-struct ToolbarDragHandle: View {
-    var body: some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.fixed(3), spacing: 3), count: 3),
-            spacing: 3
-        ) {
-            ForEach(0..<9, id: \.self) { _ in
-                Circle()
-                    .fill(Color.black)
-                    .frame(width: 2.5, height: 2.5)
-            }
-        }
-        .frame(width: 15, height: 15)
-        .accessibilityHidden(true)
-    }
-}
-
-// MARK: - 主按钮（发送等）
-
-struct PrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 18)
-            .frame(height: 38)
-            .background(configuration.isPressed ? AppTheme.accent.opacity(0.8) : AppTheme.accent)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-}
-
-// MARK: - 次要按钮（关闭/复制/重试）
-
-struct SecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(AppTheme.textPrimary)
-            .padding(.horizontal, 14)
-            .frame(height: 32)
-            .background(configuration.isPressed ? AppTheme.mutedBg : AppTheme.cardBg.opacity(0.92))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(AppTheme.border, lineWidth: 1)
-            )
-    }
-}
-
-// MARK: - 推荐问题 chip
-
-struct ChipButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(AppTheme.textPrimary)
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .background(configuration.isPressed ? AppTheme.mutedBg : Color.white)
-            .clipShape(Capsule())
-            .overlay {
-                Capsule().stroke(AppTheme.border, lineWidth: 1)
-            }
     }
 }
