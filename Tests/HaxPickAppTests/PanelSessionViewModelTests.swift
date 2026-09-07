@@ -4,10 +4,14 @@ import XCTest
 
 @MainActor
 final class PanelSessionViewModelTests: XCTestCase {
-    func testToolbarExposesOnlyMVPPrimaryActions() {
+    func testToolbarExposesPrimaryAIActions() {
         XCTAssertEqual(
             AiToolAction.primaryActions.map(\.rawValue),
-            [AiToolAction.translate.rawValue, AiToolAction.explain.rawValue]
+            [
+                AiToolAction.translate.rawValue,
+                AiToolAction.explain.rawValue,
+                AiToolAction.deepDive.rawValue,
+            ]
         )
     }
 
