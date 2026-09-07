@@ -84,16 +84,12 @@ final class MarkdownWithCodeBlocksView: NSView {
 }
 
 final class AutoHeightTextView: NSTextView {
-    var defaultParagraphStyle: NSParagraphStyle? {
-        didSet {
-            typingAttributes[.paragraphStyle] = defaultParagraphStyle
-        }
-    }
-
     init() {
         let storage = NSTextStorage()
         let layout = NSLayoutManager()
-        let container = NSTextContainer(size: NSSize(width: 0, height: .greatestFiniteMagnitude))
+        let container = NSTextContainer(
+            size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        )
         container.widthTracksTextView = true
         container.lineFragmentPadding = 0
         layout.addTextContainer(container)
@@ -120,7 +116,10 @@ final class AutoHeightTextView: NSTextView {
             return NSSize(width: NSView.noIntrinsicMetric, height: 20)
         }
         let availableWidth = max(bounds.width, 1)
-        textContainer.containerSize = NSSize(width: availableWidth, height: .greatestFiniteMagnitude)
+        textContainer.containerSize = NSSize(
+            width: availableWidth,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         return NSSize(
@@ -165,7 +164,10 @@ private final class CodeBlockView: NSView {
         text.isHorizontallyResizable = true
         text.isVerticallyResizable = false
         text.textContainer?.widthTracksTextView = false
-        text.textContainer?.containerSize = NSSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        text.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         scroll.documentView = text
 
         addSubview(scroll)
