@@ -1,465 +1,362 @@
 import AppKit
-import SwiftUI
+import Combine
 
-struct ResultPanelView: View {
-    @ObservedObject var viewModel: PanelSessionViewModel
+@MainActor
+final class ResultPanelView: NSView {
+    private let viewModel: PanelSessionViewModel
+    private var observation: AnyCancellable?
 
-    private let tailID = "ai-chat-tail"
-    @State private var followTailState = ChatFollowTailState()
-    @State private var conversationViewportHeight: CGFloat = 0
-    @State private var tailMaxY: CGFloat = .greatestFiniteMagnitude
+    private let headerTitle = NSTextField.haxLabel("", font: .systemFont(ofSize: 13.5, weight: .semibold))
+    private let statusDot = NSView()
+    private let statusLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 9.5, weight: .medium), color: AppTheme.textSecondary)
+    private let closeButton = NSButton()
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            conversationHeader
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
+    private let scrollView = ConversationScrollView()
+    private let documentView = ConversationDocumentView()
+    private let returnToLatestButton = NSButton()
+    private let inputBar: AiChatInputBar
 
-            SoftDivider(horizontalInset: 12)
+    private var followTailState = ChatFollowTailState()
+    private var messageViews: [UUID: AiMessageBubble] = [:]
+    private var currentStructure: [String] = []
+    private var lastRequestRevision: Int
+    private var isProgrammaticScroll = false
+    private var isUpdatingDocumentLayout = false
+    private var lastObservedOffsetY: CGFloat = 0
+    private var boundsObserver: NSObjectProtocol?
 
-            conversation
-
-            AiChatInputBar(viewModel: viewModel)
+    init(viewModel: PanelSessionViewModel) {
+        self.viewModel = viewModel
+        self.inputBar = AiChatInputBar(viewModel: viewModel)
+        self.lastRequestRevision = viewModel.requestRevision
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        buildUI()
+        installScrollObservation()
+        observation = viewModel.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.render() }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppTheme.panelContent)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: AppTheme.resultCorner - AppTheme.glassContentInset,
-                style: .continuous
-            )
+        render()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let boundsObserver {
+            NotificationCenter.default.removeObserver(boundsObserver)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        updateDocumentLayout(preserveUserOffset: !followTailState.isFollowingTail)
+    }
+
+    private func buildUI() {
+        wantsLayer = true
+        applyContinuousCornerRadius(
+            AppTheme.resultCorner - AppTheme.glassContentInset,
+            background: AppTheme.panelContent
         )
-        .compositingGroup()
-        .overlay {
-            RoundedRectangle(
-                cornerRadius: AppTheme.resultCorner - AppTheme.glassContentInset,
-                style: .continuous
-            )
-            .stroke(Color.white.opacity(0.78), lineWidth: 0.75)
+        layer?.borderWidth = 0.75
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.78).cgColor
+
+        let header = makeHeader()
+        let divider = SoftDividerView()
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = documentView
+
+        returnToLatestButton.translatesAutoresizingMaskIntoConstraints = false
+        returnToLatestButton.title = "↓  回到最新"
+        returnToLatestButton.font = .systemFont(ofSize: 10.5, weight: .medium)
+        returnToLatestButton.bezelStyle = .rounded
+        returnToLatestButton.target = self
+        returnToLatestButton.action = #selector(returnToLatest)
+        returnToLatestButton.isHidden = true
+
+        addSubview(header)
+        addSubview(divider)
+        addSubview(scrollView)
+        addSubview(inputBar)
+        addSubview(returnToLatestButton)
+
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            header.topAnchor.constraint(equalTo: topAnchor, constant: 11),
+            header.heightAnchor.constraint(equalToConstant: 38),
+
+            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            divider.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
+
+            inputBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            inputBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            inputBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: inputBar.topAnchor),
+
+            returnToLatestButton.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -12),
+            returnToLatestButton.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -10),
+        ])
+    }
+
+    private func makeHeader() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 9
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        row.addArrangedSubview(AppBrandIconView(size: 28))
+
+        let textStack = NSStackView()
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 1
+        textStack.addArrangedSubview(headerTitle)
+
+        let statusRow = NSStackView()
+        statusRow.orientation = .horizontal
+        statusRow.alignment = .centerY
+        statusRow.spacing = 5
+        statusDot.translatesAutoresizingMaskIntoConstraints = false
+        statusDot.wantsLayer = true
+        statusDot.layer?.cornerRadius = 2.75
+        statusDot.widthAnchor.constraint(equalToConstant: 5.5).isActive = true
+        statusDot.heightAnchor.constraint(equalToConstant: 5.5).isActive = true
+        statusRow.addArrangedSubview(statusDot)
+        statusRow.addArrangedSubview(statusLabel)
+        textStack.addArrangedSubview(statusRow)
+
+        row.addArrangedSubview(textStack)
+        row.addArrangedSubview(NSView())
+
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.isBordered = false
+        closeButton.focusRingType = .none
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "关闭")
+        closeButton.contentTintColor = .white
+        closeButton.target = self
+        closeButton.action = #selector(closePanel)
+        closeButton.wantsLayer = true
+        closeButton.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.86).cgColor
+        closeButton.layer?.cornerRadius = 14
+        closeButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        closeButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        row.addArrangedSubview(closeButton)
+        return row
+    }
+
+    private func installScrollObservation() {
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        boundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.clipBoundsDidChange()
+            }
+        }
+        lastObservedOffsetY = scrollView.contentView.bounds.origin.y
+    }
+
+    private func render() {
+        let requestRevision = viewModel.requestRevision
+        if requestRevision != lastRequestRevision {
+            lastRequestRevision = requestRevision
+            followTailState.requestDidStart()
+            viewModel.resumeStreamingPresentation()
+        }
+
+        refreshHeader()
+        syncConversationRows()
+        updateReturnToLatestVisibility()
+        updateDocumentLayout(preserveUserOffset: !followTailState.isFollowingTail)
+
+        if followTailState.isFollowingTail {
+            scrollToBottom()
         }
     }
 
-    private var conversationHeader: some View {
-        HStack(spacing: 9) {
-            AppBrandIcon(size: 28)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(viewModel.currentAction?.rawValue ?? "AI 对话")
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundColor(
-                        viewModel.currentAction == .deepDive
-                            ? AppTheme.textPrimary.opacity(0.78)
-                            : AppTheme.textPrimary
-                    )
-
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 5.5, height: 5.5)
-                    Text(viewModel.statusHint)
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundColor(AppTheme.textSecondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
-                viewModel.close()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(CloseButtonStyle())
-            .help("关闭")
-            .accessibilityLabel("关闭")
+    private func refreshHeader() {
+        headerTitle.stringValue = viewModel.currentAction?.rawValue ?? "AI 对话"
+        headerTitle.textColor = viewModel.currentAction == .deepDive
+            ? AppTheme.textPrimary.withAlphaComponent(0.78)
+            : AppTheme.textPrimary
+        statusLabel.stringValue = viewModel.statusHint
+        let color: NSColor
+        if viewModel.errorMessage != nil {
+            color = .systemOrange
+        } else if viewModel.isLoading {
+            color = AppTheme.accent
+        } else if viewModel.didStop {
+            color = .systemOrange
+        } else {
+            color = AppTheme.success
         }
+        statusDot.layer?.backgroundColor = color.cgColor
     }
 
-    private var conversation: some View {
-        ScrollViewReader { proxy in
-            ZStack(alignment: .bottomTrailing) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if viewModel.showsSourceTurn {
-                            SourceTurnBubble(viewModel: viewModel)
-                        }
+    private func syncConversationRows() {
+        let messages = viewModel.conversationMessages
+        let validIDs = Set(messages.map(\.id))
+        messageViews = messageViews.filter { validIDs.contains($0.key) }
 
-                        ForEach(viewModel.conversationMessages) { message in
-                            AiMessageBubble(
-                                message: message,
-                                isStreaming: message.id == viewModel.streamingAssistantID,
-                                assistantContentOpacity: viewModel.currentAction == .deepDive ? 0.78 : 1
-                            )
-                        }
+        var desiredViews: [NSView] = []
+        var structure: [String] = []
 
-                        if viewModel.isLoading && viewModel.streamingAssistantID == nil {
-                            HStack(spacing: 7) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("正在思考…")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(AppTheme.textSecondary)
-                            }
-                            .padding(.vertical, 2)
-                        }
+        if viewModel.showsSourceTurn {
+            desiredViews.append(SourceTurnView(viewModel: viewModel))
+            structure.append("source:\(viewModel.requestRevision):\(viewModel.isOriginalExpanded)")
+        }
 
-                        if let errorMessage = viewModel.errorMessage {
-                            errorBubble(errorMessage)
-                        }
-
-                        if !viewModel.isLoading && !viewModel.suggestions.isEmpty {
-                            FollowUpSuggestions(
-                                suggestions: viewModel.suggestions,
-                                onTap: { viewModel.askSuggestion($0) }
-                            )
-                        }
-
-                        if !viewModel.isLoading &&
-                            (viewModel.lastAssistantContent != nil || viewModel.canRetry) {
-                            assistantActions
-                        }
-
-                        Color.clear
-                            .frame(height: 1)
-                            .background {
-                                GeometryReader { geometry in
-                                    Color.clear.preference(
-                                        key: ConversationTailMaxYPreferenceKey.self,
-                                        value: geometry.frame(
-                                            in: .named(ConversationScrollCoordinateSpace.name)
-                                        ).maxY
-                                    )
-                                }
-                            }
-                            .id(tailID)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .coordinateSpace(name: ConversationScrollCoordinateSpace.name)
-                .background {
-                    GeometryReader { geometry in
-                        Color.clear.preference(
-                            key: ConversationViewportHeightPreferenceKey.self,
-                            value: geometry.size.height
-                        )
-                    }
-                }
-                .background(
-                    ManualScrollInteractionMonitor {
-                        followTailState.userDidScroll()
-                        viewModel.pauseStreamingPresentation()
+        for message in messages where message.role != .system {
+            let isStreaming = message.id == viewModel.streamingAssistantID
+            let opacity: CGFloat = viewModel.currentAction == .deepDive ? 0.78 : 1
+            let bubble: AiMessageBubble
+            if let existing = messageViews[message.id] {
+                existing.update(
+                    message: message,
+                    isStreaming: isStreaming,
+                    assistantContentOpacity: opacity
+                )
+                bubble = existing
+            } else {
+                bubble = AiMessageBubble(
+                    message: message,
+                    isStreaming: isStreaming,
+                    assistantContentOpacity: opacity,
+                    onLayoutChange: { [weak self] in
+                        DispatchQueue.main.async { self?.messageLayoutDidChange() }
                     }
                 )
-
-                if !followTailState.isFollowingTail {
-                    Button {
-                        viewModel.resumeStreamingPresentation()
-                        followTailState.resume()
-                        DispatchQueue.main.async {
-                            proxy.scrollTo(tailID, anchor: .bottom)
-                        }
-                    } label: {
-                        Label("回到最新", systemImage: "arrow.down")
-                    }
-                    .buttonStyle(ReturnToLatestButtonStyle())
-                    .padding(10)
-                }
+                messageViews[message.id] = bubble
             }
-            .onPreferenceChange(ConversationViewportHeightPreferenceKey.self) { height in
-                conversationViewportHeight = height
-            }
-            .onPreferenceChange(ConversationTailMaxYPreferenceKey.self) { maxY in
-                let previousMaxY = tailMaxY
-                tailMaxY = maxY
-
-                guard previousMaxY.isFinite else { return }
-                let movingTowardTail = maxY < previousMaxY - 0.5
-                let extentAfter = max(0, maxY - conversationViewportHeight)
-                guard followTailState.tailPositionDidChange(
-                    extentAfter: extentAfter,
-                    movingTowardTail: movingTowardTail
-                ) else { return }
-
-                viewModel.resumeStreamingPresentation()
-                DispatchQueue.main.async {
-                    proxy.scrollTo(tailID, anchor: .bottom)
-                }
-            }
-            .onChange(of: scrollSignal) { _ in
-                guard followTailState.isFollowingTail else { return }
-                DispatchQueue.main.async {
-                    proxy.scrollTo(tailID, anchor: .bottom)
-                }
-            }
-            .onChange(of: viewModel.requestRevision) { _ in
-                viewModel.resumeStreamingPresentation()
-                followTailState.requestDidStart()
-                DispatchQueue.main.async {
-                    proxy.scrollTo(tailID, anchor: .bottom)
-                }
-            }
+            desiredViews.append(bubble)
+            structure.append("message:\(message.id.uuidString)")
         }
-        .frame(maxHeight: .infinity)
-    }
 
-    private var assistantActions: some View {
-        HStack(spacing: 14) {
-            Button {
-                viewModel.retry()
-            } label: {
-                Label("重新生成", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(InlineActionButtonStyle())
-            .disabled(!viewModel.canRetry)
+        if viewModel.isLoading && viewModel.streamingAssistantID == nil {
+            desiredViews.append(PanelThinkingView())
+            structure.append("thinking")
+        }
 
-            Button {
-                viewModel.copyResult()
-            } label: {
-                Label {
-                    Text("复制回答")
-                } icon: {
-                    HaxIcon(asset: .copy)
-                        .frame(width: 12, height: 12)
-                }
-            }
-            .buttonStyle(InlineActionButtonStyle())
-            .disabled(viewModel.lastAssistantContent == nil)
+        if let error = viewModel.errorMessage {
+            desiredViews.append(ErrorBubbleView(text: error))
+            structure.append("error:\(error)")
+        }
 
-            Spacer()
+        if !viewModel.isLoading && !viewModel.suggestions.isEmpty {
+            desiredViews.append(FollowUpSuggestionsView(suggestions: viewModel.suggestions) { [weak self] text in
+                self?.viewModel.askSuggestion(text)
+            })
+            structure.append("suggestions:\(viewModel.suggestions.joined(separator: "|"))")
+        }
+
+        if !viewModel.isLoading && (viewModel.lastAssistantContent != nil || viewModel.canRetry) {
+            desiredViews.append(AssistantActionsView(viewModel: viewModel))
+            structure.append("actions:\(viewModel.canRetry):\(viewModel.lastAssistantContent != nil)")
+        }
+
+        if structure != currentStructure {
+            currentStructure = structure
+            documentView.setRows(desiredViews)
         }
     }
 
-    private func errorBubble(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("请求失败")
-                    .font(.system(size: 11.5, weight: .semibold))
-            }
-            .foregroundColor(.orange)
-
-            Text(text)
-                .font(.system(size: 11.5))
-                .foregroundColor(AppTheme.textSecondary)
-                .textSelection(.enabled)
+    private func messageLayoutDidChange() {
+        updateDocumentLayout(preserveUserOffset: !followTailState.isFollowingTail)
+        if followTailState.isFollowingTail {
+            scrollToBottom()
         }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.mutedBg)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private var statusColor: Color {
-        if viewModel.errorMessage != nil { return .orange }
-        if viewModel.isLoading { return AppTheme.accent }
-        if viewModel.didStop { return .orange }
-        return AppTheme.success
-    }
-
-    private var scrollSignal: ScrollSignal {
-        let lastMessage = viewModel.conversationMessages.last
-        return ScrollSignal(
-            messageCount: viewModel.conversationMessages.count,
-            lastMessageID: lastMessage?.id,
-            draftRevision: viewModel.draftRevision,
-            suggestionCount: viewModel.suggestions.count,
-            hasError: viewModel.errorMessage != nil,
-            isLoading: viewModel.isLoading
+    private func updateDocumentLayout(preserveUserOffset: Bool) {
+        guard scrollView.bounds.width > 0, scrollView.bounds.height > 0 else { return }
+        let oldOrigin = scrollView.contentView.bounds.origin
+        isUpdatingDocumentLayout = true
+        documentView.updateLayout(
+            viewportWidth: scrollView.contentSize.width,
+            minimumHeight: scrollView.contentSize.height
         )
-    }
-}
+        scrollView.layoutSubtreeIfNeeded()
 
-private enum ConversationScrollCoordinateSpace {
-    static let name = "ai-conversation-scroll"
-}
-
-private struct ConversationViewportHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct ConversationTailMaxYPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = .greatestFiniteMagnitude
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct SourceTurnBubble: View {
-    @ObservedObject var viewModel: PanelSessionViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(viewModel.currentAction?.rawValue ?? "原文")
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundColor(Color.white.opacity(0.56))
-
-            Text(viewModel.selectedText)
-                .font(.system(size: 12.5))
-                .foregroundColor(Color.white.opacity(0.86))
-                .lineSpacing(3)
-                .lineLimit(viewModel.isOriginalExpanded ? nil : 6)
-                .textSelection(.enabled)
-
-            if viewModel.selectedText.count > 180 {
-                Button(viewModel.isOriginalExpanded ? "收起" : "展开原文") {
-                    viewModel.toggleOriginalExpanded()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundColor(Color.white.opacity(0.70))
-            }
+        if preserveUserOffset {
+            let maxY = maxOffsetY
+            let clamped = min(max(0, oldOrigin.y), maxY)
+            isProgrammaticScroll = true
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: clamped))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            isProgrammaticScroll = false
+            lastObservedOffsetY = clamped
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(hex: 0x303136).opacity(0.96))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        isUpdatingDocumentLayout = false
     }
-}
 
-private struct FollowUpSuggestions: View {
-    let suggestions: [String]
-    let onTap: (String) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("继续追问")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(AppTheme.textSecondary)
-
-            SuggestionFlowLayout(spacing: 7) {
-                ForEach(suggestions, id: \.self) { suggestion in
-                    Button(suggestion) {
-                        onTap(suggestion)
-                    }
-                    .buttonStyle(SuggestionButtonStyle())
-                }
-            }
-        }
-        .padding(.top, 2)
+    private var maxOffsetY: CGFloat {
+        max(0, documentView.frame.height - scrollView.contentSize.height)
     }
-}
 
-private struct SuggestionFlowLayout: Layout {
-    let spacing: CGFloat
-
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        let maxWidth = proposal.width ?? 10_000
-        var measuredWidth: CGFloat = 0
-        var totalHeight: CGFloat = 0
-        var lineWidth: CGFloat = 0
-        var lineHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if lineWidth > 0 && lineWidth + spacing + size.width > maxWidth {
-                measuredWidth = max(measuredWidth, lineWidth)
-                totalHeight += lineHeight + spacing
-                lineWidth = size.width
-                lineHeight = size.height
-            } else {
-                lineWidth += (lineWidth == 0 ? 0 : spacing) + size.width
-                lineHeight = max(lineHeight, size.height)
-            }
+    private func clipBoundsDidChange() {
+        let newY = scrollView.contentView.bounds.origin.y
+        let oldY = lastObservedOffsetY
+        lastObservedOffsetY = newY
+        guard !isProgrammaticScroll, !isUpdatingDocumentLayout, abs(newY - oldY) > 0.5 else {
+            return
         }
 
-        measuredWidth = max(measuredWidth, lineWidth)
-        totalHeight += lineHeight
-        return CGSize(
-            width: proposal.width ?? measuredWidth,
-            height: totalHeight
-        )
-    }
+        followTailState.userDidScroll()
+        viewModel.pauseStreamingPresentation()
 
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        var x = bounds.minX
-        var y = bounds.minY
-        var lineHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX && x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += lineHeight + spacing
-                lineHeight = 0
-            }
-            subview.place(
-                at: CGPoint(x: x, y: y),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: size.width, height: size.height)
-            )
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
+        let movingTowardTail = newY > oldY
+        let extentAfter = max(0, maxOffsetY - newY)
+        if followTailState.tailPositionDidChange(
+            extentAfter: extentAfter,
+            movingTowardTail: movingTowardTail
+        ) {
+            viewModel.resumeStreamingPresentation()
+            scrollToBottom()
         }
+        updateReturnToLatestVisibility()
     }
-}
 
-private struct SuggestionButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 10.5))
-            .foregroundColor(AppTheme.textSecondary)
-            .lineLimit(1)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(AppTheme.mutedBg.opacity(configuration.isPressed ? 0.9 : 0.64))
-            .clipShape(Capsule())
-            .overlay {
-                Capsule().stroke(AppTheme.border, lineWidth: 0.75)
-            }
+    private func scrollToBottom() {
+        guard followTailState.isFollowingTail else { return }
+        updateDocumentLayout(preserveUserOffset: false)
+        let y = maxOffsetY
+        isProgrammaticScroll = true
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        isProgrammaticScroll = false
+        lastObservedOffsetY = y
+        updateReturnToLatestVisibility()
     }
-}
 
-private struct CloseButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(Color.black.opacity(configuration.isPressed ? 0.68 : 0.86))
-            .clipShape(Circle())
+    private func updateReturnToLatestVisibility() {
+        returnToLatestButton.isHidden = followTailState.isFollowingTail
     }
-}
 
-private struct InlineActionButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 10.5, weight: .medium))
-            .foregroundColor(AppTheme.textSecondary)
-            .opacity(configuration.isPressed ? 0.55 : 1)
+    @objc private func returnToLatest() {
+        followTailState.resume()
+        viewModel.resumeStreamingPresentation()
+        render()
+        scrollToBottom()
     }
-}
 
-private struct ReturnToLatestButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 10.5, weight: .medium))
-            .foregroundColor(AppTheme.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.white.opacity(0.94))
-            .clipShape(Capsule())
-            .overlay {
-                Capsule().stroke(AppTheme.border, lineWidth: 0.75)
-            }
-            .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
-            .opacity(configuration.isPressed ? 0.7 : 1)
+    @objc private func closePanel() {
+        viewModel.close()
     }
 }
 
@@ -473,12 +370,10 @@ struct ChatFollowTailState: Equatable {
     }
 
     mutating func requestDidStart() {
-        guard !isFollowingTail else { return }
         isFollowingTail = true
     }
 
     mutating func resume() {
-        guard !isFollowingTail else { return }
         isFollowingTail = true
     }
 
@@ -493,94 +388,294 @@ struct ChatFollowTailState: Equatable {
               extentAfter <= Self.resumeThreshold else {
             return false
         }
-
         isFollowingTail = true
         return true
     }
 }
 
-private struct ManualScrollInteractionMonitor: NSViewRepresentable {
-    let onUserScroll: () -> Void
+private final class ConversationScrollView: NSScrollView {}
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onUserScroll: onUserScroll)
+private final class ConversationDocumentView: NSView {
+    private let stack = NSStackView()
+    private var rowWidthConstraints: [NSLayoutConstraint] = []
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+        ])
     }
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        context.coordinator.view = view
-        context.coordinator.installMonitor()
-        return view
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.onUserScroll = onUserScroll
+    func setRows(_ rows: [NSView]) {
+        NSLayoutConstraint.deactivate(rowWidthConstraints)
+        rowWidthConstraints.removeAll()
+        for old in stack.arrangedSubviews {
+            stack.removeArrangedSubview(old)
+            old.removeFromSuperview()
+        }
+        for row in rows {
+            row.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(row)
+            rowWidthConstraints.append(row.widthAnchor.constraint(equalTo: stack.widthAnchor))
+        }
+        NSLayoutConstraint.activate(rowWidthConstraints)
     }
 
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.removeMonitor()
-    }
-
-    final class Coordinator {
-        weak var view: NSView?
-        var onUserScroll: () -> Void
-        private var eventMonitor: Any?
-
-        init(onUserScroll: @escaping () -> Void) {
-            self.onUserScroll = onUserScroll
+    func updateLayout(viewportWidth: CGFloat, minimumHeight: CGFloat) {
+        let width = max(1, viewportWidth)
+        if abs(frame.width - width) > 0.5 {
+            frame.size.width = width
         }
-
-        func installMonitor() {
-            guard eventMonitor == nil else { return }
-            let mask: NSEvent.EventTypeMask = [.scrollWheel, .leftMouseDragged]
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
-                guard let self,
-                      let view,
-                      event.window === view.window else {
-                    return event
-                }
-
-                let point = view.convert(event.locationInWindow, from: nil)
-                guard view.bounds.contains(point), Self.isManualScrollInteraction(event) else {
-                    return event
-                }
-
-                DispatchQueue.main.async { [weak self] in
-                    self?.onUserScroll()
-                }
-                return event
-            }
-        }
-
-        func removeMonitor() {
-            if let eventMonitor {
-                NSEvent.removeMonitor(eventMonitor)
-                self.eventMonitor = nil
-            }
-        }
-
-        private static func isManualScrollInteraction(_ event: NSEvent) -> Bool {
-            switch event.type {
-            case .scrollWheel:
-                return abs(event.scrollingDeltaY) > 0.01 || abs(event.scrollingDeltaX) > 0.01
-            case .leftMouseDragged:
-                return true
-            default:
-                return false
-            }
-        }
-
-        deinit {
-            removeMonitor()
+        layoutSubtreeIfNeeded()
+        let contentHeight = stack.fittingSize.height + 28
+        let height = max(minimumHeight, contentHeight)
+        if abs(frame.height - height) > 0.5 {
+            frame.size.height = height
+            layoutSubtreeIfNeeded()
         }
     }
 }
 
-private struct ScrollSignal: Equatable {
-    let messageCount: Int
-    let lastMessageID: UUID?
-    let draftRevision: Int
-    let suggestionCount: Int
-    let hasError: Bool
-    let isLoading: Bool
+@MainActor
+private final class SourceTurnView: NSView {
+    private let viewModel: PanelSessionViewModel
+
+    init(viewModel: PanelSessionViewModel) {
+        self.viewModel = viewModel
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        applyContinuousCornerRadius(12, background: NSColor(hex: 0x303136, alpha: 0.96))
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 7
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+        ])
+
+        let action = NSTextField.haxLabel(
+            viewModel.currentAction?.rawValue ?? "原文",
+            font: .systemFont(ofSize: 9.5, weight: .semibold),
+            color: NSColor.white.withAlphaComponent(0.56)
+        )
+        stack.addArrangedSubview(action)
+
+        let text = AutoHeightTextView()
+        text.font = .systemFont(ofSize: 12.5)
+        text.textColor = NSColor.white.withAlphaComponent(0.82)
+        let source = viewModel.selectedText
+        if !viewModel.isOriginalExpanded && source.count > 360 {
+            text.string = String(source.prefix(360)) + "…"
+        } else {
+            text.string = source
+        }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 3
+        text.defaultParagraphStyle = paragraph
+        stack.addArrangedSubview(text)
+        text.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        if source.count > 180 {
+            let button = NSButton(
+                title: viewModel.isOriginalExpanded ? "收起" : "展开原文",
+                target: self,
+                action: #selector(toggleOriginal)
+            )
+            button.isBordered = false
+            button.font = .systemFont(ofSize: 10.5, weight: .medium)
+            button.contentTintColor = NSColor.white.withAlphaComponent(0.70)
+            stack.addArrangedSubview(button)
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func toggleOriginal() {
+        viewModel.toggleOriginalExpanded()
+    }
+}
+
+private final class PanelThinkingView: NSView {
+    init() {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 7
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.startAnimation(nil)
+        row.addArrangedSubview(spinner)
+        row.addArrangedSubview(NSTextField.haxLabel("正在思考…", font: .systemFont(ofSize: 12), color: AppTheme.textSecondary))
+        addSubview(row)
+        row.pinEdges(to: self)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private final class ErrorBubbleView: NSView {
+    init(text: String) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        applyContinuousCornerRadius(10, background: AppTheme.mutedBg)
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(NSTextField.haxLabel("⚠ 请求失败", font: .systemFont(ofSize: 11.5, weight: .semibold), color: .systemOrange))
+        stack.addArrangedSubview(NSTextField.haxLabel(text, font: .systemFont(ofSize: 11.5), color: AppTheme.textSecondary))
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 11),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -11),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 11),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -11),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+@MainActor
+private final class FollowUpSuggestionsView: NSView {
+    init(suggestions: [String], onTap: @escaping (String) -> Void) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 7
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(NSTextField.haxLabel("继续追问", font: .systemFont(ofSize: 10, weight: .semibold), color: AppTheme.textSecondary))
+
+        for suggestion in suggestions {
+            let button = SuggestionButton(title: suggestion, action: { onTap(suggestion) })
+            stack.addArrangedSubview(button)
+        }
+        addSubview(stack)
+        stack.pinEdges(to: self)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private final class SuggestionButton: NSButton {
+    private let handler: () -> Void
+
+    init(title: String, action: @escaping () -> Void) {
+        self.handler = action
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        self.title = title
+        isBordered = false
+        focusRingType = .none
+        font = .systemFont(ofSize: 10.5)
+        contentTintColor = AppTheme.textSecondary
+        alignment = .left
+        target = self
+        self.action = #selector(runHandler)
+        wantsLayer = true
+        layer?.backgroundColor = AppTheme.mutedBg.withAlphaComponent(0.64).cgColor
+        layer?.cornerRadius = 13
+        heightAnchor.constraint(equalToConstant: 26).isActive = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func runHandler() {
+        handler()
+    }
+}
+
+@MainActor
+private final class AssistantActionsView: NSView {
+    init(viewModel: PanelSessionViewModel) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 14
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        let retry = ClosureButton(title: "↻ 重新生成") { [weak viewModel] in
+            viewModel?.retry()
+        }
+        retry.isEnabled = viewModel.canRetry
+        let copy = ClosureButton(title: "复制回答") { [weak viewModel] in
+            viewModel?.copyResult()
+        }
+        copy.image = HaxIconAsset.copy.image
+        copy.imagePosition = .imageLeading
+        copy.isEnabled = viewModel.lastAssistantContent != nil
+
+        row.addArrangedSubview(retry)
+        row.addArrangedSubview(copy)
+        row.addArrangedSubview(NSView())
+        addSubview(row)
+        row.pinEdges(to: self)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private final class ClosureButton: NSButton {
+    private let handler: () -> Void
+
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        self.title = title
+        isBordered = false
+        focusRingType = .none
+        font = .systemFont(ofSize: 10.5, weight: .medium)
+        contentTintColor = AppTheme.textSecondary
+        target = self
+        action = #selector(runHandler)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func runHandler() {
+        handler()
+    }
 }
