@@ -22,8 +22,11 @@ final class PermissionGuideViewController: NSViewController {
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 420))
+        view.appearance = AppTheme.windowAppearance
         view.wantsLayer = true
-        view.layer?.backgroundColor = AppTheme.background.cgColor
+        view.applyContinuousCornerRadius(AppTheme.permissionCorner, background: AppTheme.background)
+        view.layer?.borderWidth = 0.75
+        view.layer?.borderColor = AppTheme.border.cgColor
 
         let root = NSStackView()
         root.orientation = .vertical
@@ -86,7 +89,7 @@ final class PermissionGuideViewController: NSViewController {
     private func makeSteps() -> NSView {
         let card = NSView()
         card.translatesAutoresizingMaskIntoConstraints = false
-        card.applyContinuousCornerRadius(12, background: AppTheme.cardBg)
+        card.applyContinuousCornerRadius(14, background: AppTheme.cardBg)
         card.layer?.borderWidth = 0.75
         card.layer?.borderColor = AppTheme.border.cgColor
 
@@ -139,6 +142,7 @@ final class PermissionGuideViewController: NSViewController {
 
         let badge = NSTextField(labelWithString: number)
         badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.appearance = AppTheme.windowAppearance
         badge.alignment = .center
         badge.font = .systemFont(ofSize: 13, weight: .bold)
         badge.textColor = .white
@@ -166,11 +170,14 @@ final class PermissionGuideViewController: NSViewController {
         row.spacing = 8
 
         let open = NSButton(title: "打开辅助功能设置", target: self, action: #selector(openSettings))
+        open.appearance = AppTheme.windowAppearance
         open.bezelStyle = .rounded
         open.keyEquivalent = "\r"
         let refresh = NSButton(title: "刷新状态", target: self, action: #selector(refreshPermission))
+        refresh.appearance = AppTheme.windowAppearance
         refresh.bezelStyle = .rounded
         let later = NSButton(title: "稍后再说", target: self, action: #selector(closeGuide))
+        later.appearance = AppTheme.windowAppearance
         later.bezelStyle = .rounded
 
         row.addArrangedSubview(open)
