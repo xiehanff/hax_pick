@@ -5,6 +5,7 @@ import Foundation
 final class AiAgentSession: ObservableObject {
     typealias Stream = ([AiMessage]) -> AsyncThrowingStream<String, Error>
     typealias Complete = ([AiMessage]) async throws -> String
+    typealias ModeAwareStream = ([AiMessage], DeepSeekService.RequestMode) -> AsyncThrowingStream<String, Error>
 
     @Published private(set) var messages: [AiMessage] = []
     @Published private(set) var currentAction: AiToolAction?
@@ -33,7 +34,7 @@ final class AiAgentSession: ObservableObject {
         let originalAssistant: AiMessage?
     }
 
-    private let stream: Stream
+    private let streamWithMode: ModeAwareStream
     private let publishIntervalNanoseconds: UInt64
     private var generation = 0
     private var currentTask: Task<Void, Never>?
@@ -47,8 +48,11 @@ final class AiAgentSession: ObservableObject {
         service: DeepSeekService,
         historyWindow: AiHistoryWindow = .standard
     ) {
-        self.stream = { messages in
-            service.stream(messages: historyWindow.requestMessages(from: messages))
+        self.streamWithMode = { messages, mode in
+            service.stream(
+                messages: historyWindow.requestMessages(from: messages),
+                mode: mode
+            )
         }
         self.publishIntervalNanoseconds = 40_000_000
     }
@@ -57,12 +61,12 @@ final class AiAgentSession: ObservableObject {
         stream: @escaping Stream,
         publishIntervalNanoseconds: UInt64 = 40_000_000
     ) {
-        self.stream = stream
+        self.streamWithMode = { messages, _ in stream(messages) }
         self.publishIntervalNanoseconds = publishIntervalNanoseconds
     }
 
     init(complete: @escaping Complete) {
-        self.stream = { messages in
+        self.streamWithMode = { messages, _ in
             AsyncThrowingStream { continuation in
                 let task = Task {
                     do {
@@ -228,7 +232,8 @@ final class AiAgentSession: ObservableObject {
         requestRevision += 1
         let requestGeneration = generation
         let requestMessages = explicitRequestMessages ?? messages
-        let performer = stream
+        let performer = streamWithMode
+        let requestMode = requestMode(for: currentAction)
         let draftAssistantID: UUID
         let originalAssistant: AiMessage?
 
@@ -263,7 +268,7 @@ final class AiAgentSession: ObservableObject {
             var accumulated = ""
 
             do {
-                for try await chunk in performer(requestMessages) {
+                for try await chunk in performer(requestMessages, requestMode) {
                     guard !Task.isCancelled, self.generation == requestGeneration else { return }
                     accumulated += chunk
                     self.activeDraftContent = accumulated
@@ -296,6 +301,17 @@ final class AiAgentSession: ObservableObject {
                 self.activeDraftContent = ""
                 self.lastDraftPublishNanoseconds = nil
             }
+        }
+    }
+
+    private func requestMode(for action: AiToolAction?) -> DeepSeekService.RequestMode {
+        switch action {
+        case .translate:
+            return .translation
+        case .explain:
+            return .lowReasoning
+        default:
+            return .standard
         }
     }
 

@@ -28,6 +28,32 @@ extension URLSession: DeepSeekStreamingHTTPClient {
 }
 
 struct DeepSeekService {
+    enum RequestMode {
+        case standard
+        case translation
+        case lowReasoning
+
+        var thinkingType: String? {
+            switch self {
+            case .standard:
+                return nil
+            case .translation:
+                return "disabled"
+            case .lowReasoning:
+                return "enabled"
+            }
+        }
+
+        var reasoningEffort: String? {
+            switch self {
+            case .lowReasoning:
+                return "low"
+            case .standard, .translation:
+                return nil
+            }
+        }
+    }
+
     enum Model: String, CaseIterable, Identifiable {
         case flash = "deepseek-v4-flash"
         case pro = "deepseek-v4-pro"
@@ -53,7 +79,10 @@ struct DeepSeekService {
         self.streamingClient = streamingClient
     }
 
-    func stream(messages: [AiMessage]) -> AsyncThrowingStream<String, Error> {
+    func stream(
+        messages: [AiMessage],
+        mode: RequestMode = .standard
+    ) -> AsyncThrowingStream<String, Error> {
         let apiKey = apiKeyProvider()
         let model = modelProvider()
         let streamingClient = streamingClient
@@ -68,7 +97,8 @@ struct DeepSeekService {
                     let request = try makeRequest(
                         apiKey: apiKey,
                         model: model,
-                        messages: messages
+                        messages: messages,
+                        mode: mode
                     )
                     let (lines, response) = try await streamingClient.lines(for: request)
 
@@ -149,14 +179,17 @@ struct DeepSeekService {
     private func makeRequest(
         apiKey: String,
         model: Model,
-        messages: [AiMessage]
+        messages: [AiMessage],
+        mode: RequestMode
     ) throws -> URLRequest {
         let requestBody = ChatRequest(
             model: model.rawValue,
             messages: messages.map {
                 ChatMessage(role: $0.role.rawValue, content: $0.content)
             },
-            stream: true
+            stream: true,
+            thinking: mode.thinkingType.map(ThinkingConfiguration.init(type:)),
+            reasoningEffort: mode.reasoningEffort
         )
 
         var request = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
@@ -232,6 +265,34 @@ private struct ChatRequest: Encodable {
     let model: String
     let messages: [ChatMessage]
     let stream: Bool
+    let thinking: ThinkingConfiguration?
+    let reasoningEffort: String?
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case messages
+        case stream
+        case thinking
+        case reasoningEffort = "reasoning_effort"
+    }
+
+    init(
+        model: String,
+        messages: [ChatMessage],
+        stream: Bool,
+        thinking: ThinkingConfiguration?,
+        reasoningEffort: String?
+    ) {
+        self.model = model
+        self.messages = messages
+        self.stream = stream
+        self.thinking = thinking
+        self.reasoningEffort = reasoningEffort
+    }
+}
+
+private struct ThinkingConfiguration: Encodable {
+    let type: String
 }
 
 private struct ChatMessage: Codable {

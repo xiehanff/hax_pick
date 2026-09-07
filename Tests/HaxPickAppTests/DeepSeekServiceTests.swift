@@ -56,6 +56,58 @@ final class DeepSeekServiceTests: XCTestCase {
         XCTAssertEqual(requestMessages[3]["content"] as? String, "为什么这样翻译？")
     }
 
+    func testTranslationDisablesThinkingAndExplainUsesLowReasoning() async throws {
+        let translationClient = MockDeepSeekStreamingHTTPClient(
+            lines: [
+                "data: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}",
+                "data: [DONE]",
+            ],
+            response: Self.httpResponse(statusCode: 200)
+        )
+        let translationService = DeepSeekService(
+            apiKeyProvider: { "test-key" },
+            modelProvider: { .flash },
+            streamingClient: translationClient
+        )
+        for try await _ in translationService.stream(
+            messages: [AiMessage(role: .user, content: "hello")],
+            mode: .translation
+        ) {}
+
+        let translationBody = try XCTUnwrap(translationClient.recordedRequest?.httpBody)
+        let translationPayload = try Self.jsonObject(from: translationBody)
+        XCTAssertEqual(
+            (translationPayload["thinking"] as? [String: Any])?["type"] as? String,
+            "disabled"
+        )
+        XCTAssertNil(translationPayload["reasoning_effort"])
+
+        let explainClient = MockDeepSeekStreamingHTTPClient(
+            lines: [
+                "data: {\"choices\":[{\"delta\":{\"content\":\"解释\"}}]}",
+                "data: [DONE]",
+            ],
+            response: Self.httpResponse(statusCode: 200)
+        )
+        let explainService = DeepSeekService(
+            apiKeyProvider: { "test-key" },
+            modelProvider: { .flash },
+            streamingClient: explainClient
+        )
+        for try await _ in explainService.stream(
+            messages: [AiMessage(role: .user, content: "hello")],
+            mode: .lowReasoning
+        ) {}
+
+        let explainBody = try XCTUnwrap(explainClient.recordedRequest?.httpBody)
+        let explainPayload = try Self.jsonObject(from: explainBody)
+        XCTAssertEqual(
+            (explainPayload["thinking"] as? [String: Any])?["type"] as? String,
+            "enabled"
+        )
+        XCTAssertEqual(explainPayload["reasoning_effort"] as? String, "low")
+    }
+
     func testStreamIgnoresKeepAliveCommentsAndBlankLines() async throws {
         let client = MockDeepSeekStreamingHTTPClient(
             lines: [

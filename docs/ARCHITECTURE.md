@@ -94,17 +94,18 @@ AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动�
 
 ## Liquid Glass 兼容层
 
-`HaxGlassSurface` 统一承载工具栏、结果侧栏和菜单栏面板的玻璃外壳：
+`HaxGlassSurface` 承载结果侧栏和菜单栏面板的玻璃外壳；工具栏使用独立的 AppKit 窗口背景模糊层：
 
 - 使用 Xcode 26 / Swift 6.2 构建且运行在 macOS 26+ 时，采用 SwiftUI 原生 `glassEffect`。
-- 使用旧版 SDK 或运行在 macOS 13–15 时，回退到 `.underWindowBackground` 的 `NSVisualEffectView`，让桌面色彩透过白色磨砂层，并保留降低透明度适配。
+- 使用旧版 SDK 或运行在 macOS 13–15 时，结果侧栏和菜单栏回退到 `.underWindowBackground` 的 `NSVisualEffectView`，让桌面色彩透过白色磨砂层，并保留降低透明度适配。
 - 结果侧栏使用 12pt 宽玻璃留边，菜单栏面板使用 8pt 留边；外缘由外侧高光和内侧暗边组成同心倒角，表现玻璃厚度。
 - 浅色玻璃外缘只叠加 4% 白色，内容层叠加 72% 白色；外缘比主题背景更透明，主题背景仍能轻微透出桌面色彩。
-- 外壳由 SwiftUI 连续圆角的独立合成层裁切，窗口阴影交由 `NSPanel` 绘制，避免透明窗口边界裁断阴影后产生圆角锯齿。
+- 结果侧栏和菜单栏外壳由 SwiftUI 连续圆角的独立合成层裁切，窗口阴影交由 `NSPanel` 绘制，避免透明窗口边界裁断阴影后产生圆角锯齿。
+- 工具栏为 378×48pt 的纯白背景和全圆角，取消磨玻璃、透明背景层和阴影，改用纯白背景本身与布局间距增强在白色窗口上的辨识度；左侧拖动点阵为黑色，复制、翻译、解释均显示黑色文字；“深度理解”“润色”以黑色禁用态展示，等待后续实现。
 - 分区线使用带水平内边距的 0.5pt 弱分隔线，不与玻璃或内容层边缘相接。
 - 长文本内容区使用白色磨砂微透明背景；继续提问输入框保持更高不透明度，避免输入控件丢失边界和对比度。
 
-项目是原生 SwiftUI / AppKit 应用，Flutter 的 `liquid_glass_widgets` 无法直接作为 Swift Package 接入；UI 按其“玻璃用于悬浮控制层、内容保持不透明”的原则使用系统原生能力实现。
+项目是原生 SwiftUI / AppKit 应用，Flutter 的 `liquid_glass_widgets` 无法直接作为 Swift Package 接入；结果侧栏和菜单栏继续使用系统玻璃兼容层，工具栏使用纯白背景，前景文字由 SwiftUI 绘制。
 
 ## AI Session、本地完整历史与请求窗口
 
@@ -160,6 +161,12 @@ DeepSeek 请求启用：
   "stream": true
 }
 ```
+
+按工具动作控制推理：
+
+- 翻译：`thinking.type = "disabled"`，避免短文本翻译进入深度思考。
+- 解释：`thinking.type = "enabled"` 且 `reasoning_effort = "low"`。
+- 其他动作：保持服务默认策略。
 
 `DeepSeekService` 使用 `URLSession.AsyncBytes` 读取响应，并把 SSE：
 
@@ -412,6 +419,7 @@ Keychain save / delete
 - 模型：`deepseek-v4-flash` / `deepseek-v4-pro`
 - timeout：45s
 - 输入：经过 `AiHistoryWindow` 塑形后的 `[AiMessage]`
+- 动作推理策略：翻译关闭 thinking，解释使用 low reasoning effort
 - 主输出：`AsyncThrowingStream<String, Error>`
 - SSE 正常结束：必须收到 `[DONE]`
 - `[DONE]` 前 EOF：`incompleteStream`，不得提交 partial history

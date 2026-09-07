@@ -26,7 +26,6 @@ enum AppTheme {
     static let border         = Color.black.opacity(0.085)
     static let success        = Color(hex: 0x34C759)
 
-    static let toolbarCorner: CGFloat = 15
     static let resultCorner: CGFloat = 28
     static let menuCorner: CGFloat = 18
     static let glassContentInset: CGFloat = 12
@@ -144,18 +143,33 @@ enum HaxGlassStyle {
 
 private struct VisualEffectMaterialView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
+    let alpha: CGFloat
+    let isEmphasized: Bool
+
+    init(
+        material: NSVisualEffectView.Material,
+        alpha: CGFloat = 1,
+        isEmphasized: Bool = true
+    ) {
+        self.material = material
+        self.alpha = alpha
+        self.isEmphasized = isEmphasized
+    }
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
         view.blendingMode = .behindWindow
         view.state = .active
-        view.isEmphasized = true
+        view.isEmphasized = isEmphasized
+        view.alphaValue = alpha
         return view
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
+        nsView.isEmphasized = isEmphasized
+        nsView.alphaValue = alpha
     }
 }
 
@@ -203,7 +217,9 @@ struct HaxGlassSurface<Content: View>: View {
                 if reduceTransparency {
                     style.solidFallback
                 } else {
-                    VisualEffectMaterialView(material: style.fallbackMaterial)
+                    VisualEffectMaterialView(
+                        material: style.fallbackMaterial
+                    )
                     style.fallbackTint
                 }
             }
@@ -263,21 +279,17 @@ extension NSPoint {
 
 // MARK: - 工具栏动作按钮
 
-struct CapsuleToolButton: View {
+struct ToolbarTextButton: View {
     let title: String
-    let icon: String
+    var foregroundColor: Color = .black.opacity(0.9)
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .foregroundColor(.white.opacity(0.88))
-        .padding(.horizontal, 11)
-        .frame(height: 32)
-        .fixedSize()
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(foregroundColor)
+            .padding(.horizontal, 8)
+            .frame(height: 32)
+            .fixedSize()
     }
 }
 
@@ -289,7 +301,7 @@ struct ToolbarDragHandle: View {
         ) {
             ForEach(0..<9, id: \.self) { _ in
                 Circle()
-                    .fill(Color.white.opacity(0.52))
+                    .fill(Color.black)
                     .frame(width: 2.5, height: 2.5)
             }
         }

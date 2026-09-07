@@ -68,7 +68,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.delegate = self
         return panel
     }
