@@ -19,10 +19,30 @@ struct HaxPickApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarContentView(appState: appState)
+            SettingsMenuButton()
+            Divider()
+            Button("退出 HaxPick") {
+                NSApp.terminate(nil)
+            }
         } label: {
             Image(nsImage: trayIcon)
         }
-        .menuBarExtraStyle(.window)
+        .menuBarExtraStyle(.menu)
+
+        Window("HaxPick 设置", id: "haxpick-settings") {
+            SettingsContentView(appState: appState)
+                .frame(width: 340)
+        }
+    }
+}
+
+private struct SettingsMenuButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("设置…") {
+            openWindow(id: "haxpick-settings")
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }

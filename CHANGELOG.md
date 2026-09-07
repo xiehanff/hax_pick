@@ -24,6 +24,7 @@
 ### 变更
 
 - **工具栏样式与 AI 对话窗口对齐**：改为与结果侧栏一致的玻璃视觉——`HaxGlassSurface` 玻璃外壳 + `panelContent` 白色微透明内容层 + 白色内描边；移除上半环淡蓝彩虹背景与模糊副本实现（含 `ToolbarRainbowBackground`）。
+- **托盘回归系统样式**：托盘菜单改为标准 `MenuBarExtra(.menu)`，仅保留「设置…」「退出」；「设置」打开系统样式的设置窗口（grouped Form），内含辅助功能权限、模型选择、DeepSeek API Key 与版本号。移除 `TrayPanelController` 自建面板、`HaxGlassSurface` 托盘包装与自定义卡片视觉。
 - **工具栏移除边框**：保留纯白背景和全圆角，彻底移除边框，避免边缘锯齿和裁剪异常。
 - **工具栏改为纯白黑灰边框样式**：移除阴影和透明背景，使用纯白背景与黑灰色圆角边框，避免产生方形半透明残影。
 - **工具栏玻璃细节调整**：背景改为白色半透明高斯模糊，强制使用 `NSVisualEffectView` 的真实透出路径；移除无效的 `CIGaussianBlur` 自身图层滤镜，将模糊背景移至 NSHostingView 外部，使用原生 maskImage 裁切且保持背景层 alpha=1；白色边框降低不透明度，禁用功能文字统一改为黑色，整体内容右移并移除分割线。
