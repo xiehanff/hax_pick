@@ -8,7 +8,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
 
     private let inputScrollView = NSScrollView()
     private let inputTextView = NSTextView()
-    private let placeholderLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 13), color: AppTheme.textSecondary.withAlphaComponent(0.45))
+    private let placeholderLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 13), color: AppTheme.textSecondary.withAlphaComponent(0.62))
     private let newSessionButton = NSButton()
     private let actionButton = NSButton()
 
@@ -16,6 +16,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         self.viewModel = viewModel
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        appearance = AppTheme.windowAppearance
         buildUI()
         observation = viewModel.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refresh() }
@@ -29,7 +30,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
 
     private func buildUI() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.72).cgColor
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.96).cgColor
 
         let divider = SoftDividerView()
         addSubview(divider)
@@ -41,7 +42,8 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
 
         let card = NSView()
         card.translatesAutoresizingMaskIntoConstraints = false
-        card.applyContinuousCornerRadius(12, background: NSColor.white.withAlphaComponent(0.88))
+        card.appearance = AppTheme.windowAppearance
+        card.applyContinuousCornerRadius(13, background: NSColor.white)
         card.layer?.borderWidth = 0.75
         card.layer?.borderColor = AppTheme.border.cgColor
         addSubview(card)
@@ -53,15 +55,18 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         ])
 
         inputScrollView.translatesAutoresizingMaskIntoConstraints = false
+        inputScrollView.appearance = AppTheme.windowAppearance
         inputScrollView.drawsBackground = false
         inputScrollView.borderType = .noBorder
         inputScrollView.hasVerticalScroller = true
         inputScrollView.autohidesScrollers = true
 
+        inputTextView.appearance = AppTheme.windowAppearance
         inputTextView.delegate = self
         inputTextView.drawsBackground = false
         inputTextView.font = .systemFont(ofSize: 13)
         inputTextView.textColor = AppTheme.textPrimary
+        inputTextView.insertionPointColor = AppTheme.textPrimary
         inputTextView.isRichText = false
         inputTextView.isHorizontallyResizable = false
         inputTextView.isVerticallyResizable = true
@@ -77,6 +82,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
 
         newSessionButton.translatesAutoresizingMaskIntoConstraints = false
+        newSessionButton.appearance = AppTheme.windowAppearance
         newSessionButton.isBordered = false
         newSessionButton.focusRingType = .none
         newSessionButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "新建自由会话")
@@ -86,10 +92,11 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         newSessionButton.action = #selector(startNewSession)
         newSessionButton.toolTip = "新建自由会话"
         newSessionButton.wantsLayer = true
-        newSessionButton.layer?.backgroundColor = AppTheme.mutedBg.withAlphaComponent(0.48).cgColor
+        newSessionButton.layer?.backgroundColor = AppTheme.mutedBg.cgColor
         newSessionButton.layer?.cornerRadius = 8
 
         actionButton.translatesAutoresizingMaskIntoConstraints = false
+        actionButton.appearance = AppTheme.windowAppearance
         actionButton.isBordered = false
         actionButton.focusRingType = .none
         actionButton.imagePosition = .imageOnly
