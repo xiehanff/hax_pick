@@ -14,19 +14,25 @@ extension NSColor {
 }
 
 enum AppTheme {
+    // HaxPick currently ships a light visual system. AppKit controls inherit the
+    // system appearance by default, which makes borderless buttons/text fields
+    // render with dark-mode colors on our light custom surfaces.
+    static let windowAppearance = NSAppearance(named: .aqua)!
+
     static let background = NSColor(hex: 0xF6F6F7)
     static let cardBg = NSColor.white
-    static let panelContent = NSColor.white.withAlphaComponent(0.78)
-    static let mutedBg = NSColor(hex: 0xF2F2F3)
+    static let panelContent = NSColor.white.withAlphaComponent(0.96)
+    static let mutedBg = NSColor(hex: 0xF0F1F3)
     static let accent = NSColor(hex: 0xFF6B1A)
-    static let textPrimary = NSColor(hex: 0x232427)
-    static let textSecondary = NSColor(hex: 0x74767B)
-    static let border = NSColor.black.withAlphaComponent(0.085)
+    static let textPrimary = NSColor(hex: 0x1F2023)
+    static let textSecondary = NSColor(hex: 0x60636A)
+    static let border = NSColor.black.withAlphaComponent(0.10)
     static let success = NSColor(hex: 0x34C759)
 
-    static let resultCorner: CGFloat = 28
+    static let resultCorner: CGFloat = 24
     static let menuCorner: CGFloat = 18
-    static let glassContentInset: CGFloat = 12
+    static let permissionCorner: CGFloat = 20
+    static let glassContentInset: CGFloat = 10
 }
 
 // MARK: - Floating panel geometry
@@ -55,7 +61,7 @@ enum HaxGlassStyle {
 
     var material: NSVisualEffectView.Material {
         switch self {
-        case .light: return .underWindowBackground
+        case .light: return .popover
         case .dark: return .hudWindow
         }
     }
@@ -69,14 +75,14 @@ enum HaxGlassStyle {
 
     var overlayTint: NSColor {
         switch self {
-        case .light: return NSColor.white.withAlphaComponent(0.08)
+        case .light: return NSColor.white.withAlphaComponent(0.42)
         case .dark: return NSColor.black.withAlphaComponent(0.35)
         }
     }
 
     var rimColor: NSColor {
         switch self {
-        case .light: return NSColor.white.withAlphaComponent(0.78)
+        case .light: return NSColor.white.withAlphaComponent(0.92)
         case .dark: return NSColor.white.withAlphaComponent(0.22)
         }
     }
@@ -95,6 +101,7 @@ final class HaxGlassView: NSView {
         self.cornerRadius = cornerRadius
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        appearance = AppTheme.windowAppearance
         wantsLayer = true
         layer?.cornerRadius = cornerRadius
         layer?.cornerCurve = .continuous
@@ -103,6 +110,7 @@ final class HaxGlassView: NSView {
         layer?.borderColor = style.rimColor.cgColor
 
         effectView.translatesAutoresizingMaskIntoConstraints = false
+        effectView.appearance = AppTheme.windowAppearance
         effectView.material = style.material
         effectView.blendingMode = .behindWindow
         effectView.state = .active
@@ -134,7 +142,7 @@ final class HaxGlassView: NSView {
 }
 
 final class SoftDividerView: NSView {
-    init(color: NSColor = NSColor.black.withAlphaComponent(0.055)) {
+    init(color: NSColor = NSColor.black.withAlphaComponent(0.07)) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
@@ -152,7 +160,7 @@ final class ToolbarDragHandleView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.black.setFill()
+        AppTheme.textPrimary.setFill()
         let diameter: CGFloat = 2.5
         let gap: CGFloat = 3
         let total = diameter * 3 + gap * 2
@@ -185,10 +193,15 @@ extension NSView {
         ])
     }
 
-    func applyContinuousCornerRadius(_ radius: CGFloat, background: NSColor? = nil) {
+    func applyContinuousCornerRadius(
+        _ radius: CGFloat,
+        background: NSColor? = nil,
+        clipsToBounds: Bool = true
+    ) {
         wantsLayer = true
         layer?.cornerRadius = radius
         layer?.cornerCurve = .continuous
+        layer?.masksToBounds = clipsToBounds
         if let background {
             layer?.backgroundColor = background.cgColor
         }
@@ -204,6 +217,7 @@ extension NSTextField {
     ) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.appearance = AppTheme.windowAppearance
         label.font = font
         label.textColor = color
         label.alignment = alignment
@@ -214,6 +228,23 @@ extension NSTextField {
 }
 
 extension NSButton {
+    func setHaxTitle(
+        _ title: String? = nil,
+        color: NSColor,
+        font: NSFont? = nil
+    ) {
+        let value = title ?? self.title
+        let resolvedFont = font ?? self.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        self.title = value
+        attributedTitle = NSAttributedString(
+            string: value,
+            attributes: [
+                .font: resolvedFont,
+                .foregroundColor: color,
+            ]
+        )
+    }
+
     static func haxTextButton(
         _ title: String,
         target: AnyObject?,
@@ -223,8 +254,10 @@ extension NSButton {
     ) -> NSButton {
         let button = NSButton(title: title, target: target, action: action)
         button.translatesAutoresizingMaskIntoConstraints = false
+        button.appearance = AppTheme.windowAppearance
         button.isBordered = false
         button.font = font
+        button.setHaxTitle(title, color: color, font: font)
         button.contentTintColor = color
         button.focusRingType = .none
         return button
