@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 enum HaxIconAsset: String, CaseIterable {
     case copy = "copy-01-stroke-rounded"
@@ -11,14 +10,19 @@ enum HaxIconAsset: String, CaseIterable {
     }
 }
 
-struct HaxIcon: View {
-    let asset: HaxIconAsset
+final class HaxIconImageView: NSImageView {
+    init(asset: HaxIconAsset, size: CGFloat) {
+        super.init(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        translatesAutoresizingMaskIntoConstraints = false
+        image = asset.image
+        imageScaling = .scaleProportionallyUpOrDown
+        contentTintColor = AppTheme.textPrimary
+        widthAnchor.constraint(equalToConstant: size).isActive = true
+        heightAnchor.constraint(equalToConstant: size).isActive = true
+    }
 
-    var body: some View {
-        Image(nsImage: asset.image)
-            .resizable()
-            .renderingMode(.template)
-            .scaledToFit()
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 
