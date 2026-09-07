@@ -10,6 +10,7 @@ final class AiMessageBubble: NSView {
     private var contentRoot: NSView?
     private var reasoningView: AiReasoningDisclosureView?
     private var assistantBodyView: NSView?
+    private var streamingAssistantTextView: AutoHeightTextView?
 
     init(
         message: AiMessage,
@@ -35,20 +36,36 @@ final class AiMessageBubble: NSView {
         isStreaming: Bool,
         assistantContentOpacity: CGFloat
     ) {
-        let roleChanged = message.role != currentMessage.role
+        let previousMessage = currentMessage
+        let wasStreaming = self.isStreaming
+        let previousOpacity = self.assistantContentOpacity
+
+        guard message != previousMessage ||
+                isStreaming != wasStreaming ||
+                abs(assistantContentOpacity - previousOpacity) > 0.001 else {
+            return
+        }
+
         currentMessage = message
         self.isStreaming = isStreaming
         self.assistantContentOpacity = assistantContentOpacity
-        if roleChanged {
+
+        guard message.role == previousMessage.role else {
             rebuildRoleLayout()
             return
         }
 
         switch message.role {
         case .assistant:
-            updateAssistantContent()
+            updateAssistantContent(
+                previousMessage: previousMessage,
+                wasStreaming: wasStreaming,
+                previousOpacity: previousOpacity
+            )
         case .user:
-            rebuildRoleLayout()
+            if message != previousMessage {
+                rebuildRoleLayout()
+            }
         case .system:
             break
         }
@@ -59,6 +76,7 @@ final class AiMessageBubble: NSView {
         contentRoot = nil
         reasoningView = nil
         assistantBodyView = nil
+        streamingAssistantTextView = nil
 
         let root: NSView
         switch currentMessage.role {
@@ -145,21 +163,31 @@ final class AiMessageBubble: NSView {
         return root
     }
 
-    private func updateAssistantContent() {
+    private func updateAssistantContent(
+        previousMessage: AiMessage,
+        wasStreaming: Bool,
+        previousOpacity: CGFloat
+    ) {
         guard let stack = contentRoot?.subviews.compactMap({ $0 as? NSStackView }).first else {
             rebuildRoleLayout()
             return
         }
 
+        var needsLayout = false
         let reasoning = currentMessage.reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousReasoning = previousMessage.reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+
         if reasoning.isEmpty {
             if let reasoningView {
                 stack.removeArrangedSubview(reasoningView)
                 reasoningView.removeFromSuperview()
                 self.reasoningView = nil
+                needsLayout = true
             }
         } else if let reasoningView {
-            reasoningView.update(text: reasoning, isStreaming: isStreaming)
+            if reasoningView.update(text: reasoning, isStreaming: isStreaming) {
+                needsLayout = true
+            }
         } else {
             let disclosure = AiReasoningDisclosureView(
                 text: reasoning,
@@ -169,46 +197,103 @@ final class AiMessageBubble: NSView {
             reasoningView = disclosure
             stack.insertArrangedSubview(disclosure, at: 0)
             disclosure.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            needsLayout = true
         }
 
+        let contentChanged = currentMessage.content != previousMessage.content
+        let streamingChanged = isStreaming != wasStreaming
+        let opacityChanged = abs(assistantContentOpacity - previousOpacity) > 0.001
+
+        if currentMessage.content.isEmpty {
+            if isStreaming && reasoning.isEmpty {
+                if !(assistantBodyView is ThinkingIndicatorView) {
+                    replaceAssistantBody(in: stack, with: ThinkingIndicatorView())
+                    needsLayout = true
+                }
+            } else if let assistantBodyView {
+                stack.removeArrangedSubview(assistantBodyView)
+                assistantBodyView.removeFromSuperview()
+                self.assistantBodyView = nil
+                streamingAssistantTextView = nil
+                needsLayout = true
+            }
+        } else if isStreaming {
+            if let textView = streamingAssistantTextView,
+               assistantBodyView === textView,
+               !streamingChanged {
+                if contentChanged {
+                    textView.string = currentMessage.content
+                    textView.invalidateIntrinsicContentSize()
+                    needsLayout = true
+                }
+                if opacityChanged {
+                    textView.alphaValue = assistantContentOpacity
+                }
+            } else {
+                let textView = makeStreamingAssistantBody()
+                replaceAssistantBody(in: stack, with: textView)
+                needsLayout = true
+            }
+        } else if wasStreaming || contentChanged || assistantBodyView == nil {
+            let body = makeCompletedAssistantBody()
+            replaceAssistantBody(in: stack, with: body)
+            needsLayout = true
+        } else if opacityChanged {
+            assistantBodyView?.alphaValue = assistantContentOpacity
+        }
+
+        if !reasoning.isEmpty && previousReasoning.isEmpty {
+            needsLayout = true
+        }
+
+        if needsLayout {
+            onLayoutChange()
+        }
+    }
+
+    private func replaceAssistantBody(in stack: NSStackView, with body: NSView) {
         if let assistantBodyView {
             stack.removeArrangedSubview(assistantBodyView)
             assistantBodyView.removeFromSuperview()
-            self.assistantBodyView = nil
         }
-
-        if !currentMessage.content.isEmpty {
-            let body = makeAssistantBody()
-            assistantBodyView = body
-            stack.addArrangedSubview(body)
-            body.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        } else if isStreaming && reasoning.isEmpty {
-            let thinking = ThinkingIndicatorView()
-            assistantBodyView = thinking
-            stack.addArrangedSubview(thinking)
+        assistantBodyView = body
+        if let textView = body as? AutoHeightTextView {
+            streamingAssistantTextView = textView
+        } else {
+            streamingAssistantTextView = nil
         }
-        onLayoutChange()
+        body.alphaValue = assistantContentOpacity
+        stack.addArrangedSubview(body)
+        body.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
 
     private func makeAssistantBody() -> NSView {
-        let body: NSView
         if isStreaming {
-            let text = AutoHeightTextView()
-            text.font = .systemFont(ofSize: 13)
-            text.textColor = AppTheme.textPrimary
-            text.string = currentMessage.content
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.lineSpacing = 4
-            paragraph.paragraphSpacing = 7
-            text.defaultParagraphStyle = paragraph
-            body = text
-        } else {
-            body = MarkdownWithCodeBlocksView(
-                text: currentMessage.content,
-                textColor: AppTheme.textPrimary,
-                fontSize: 13
-            )
+            return makeStreamingAssistantBody()
         }
+        return makeCompletedAssistantBody()
+    }
+
+    private func makeStreamingAssistantBody() -> AutoHeightTextView {
+        let text = AutoHeightTextView()
+        text.font = .systemFont(ofSize: 13)
+        text.textColor = AppTheme.textPrimary
+        text.string = currentMessage.content
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+        paragraph.paragraphSpacing = 7
+        text.defaultParagraphStyle = paragraph
+        text.alphaValue = assistantContentOpacity
+        streamingAssistantTextView = text
+        return text
+    }
+
+    private func makeCompletedAssistantBody() -> MarkdownWithCodeBlocksView {
+        let body = MarkdownWithCodeBlocksView(
+            text: currentMessage.content,
+            textColor: AppTheme.textPrimary,
+            fontSize: 13
+        )
         body.alphaValue = assistantContentOpacity
         return body
     }
@@ -225,6 +310,7 @@ private final class AiReasoningDisclosureView: NSView {
     private let spinner = NSProgressIndicator()
     private let chevron = NSImageView()
     private var bodyView: NSView?
+    private var streamingTextView: AutoHeightTextView?
     private var collapseButton: NSButton?
 
     init(text: String, isStreaming: Bool, onLayoutChange: @escaping () -> Void) {
@@ -244,13 +330,33 @@ private final class AiReasoningDisclosureView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func update(text: String, isStreaming: Bool) {
+    @discardableResult
+    func update(text: String, isStreaming: Bool) -> Bool {
+        let textChanged = text != self.text
+        let streamingChanged = isStreaming != self.isStreaming
         self.text = text
         self.isStreaming = isStreaming
         refreshHeader()
-        if isExpanded {
+
+        guard isExpanded else { return false }
+
+        if streamingChanged {
             rebuildExpandedBody()
+            return true
         }
+
+        if isStreaming, let streamingTextView {
+            guard textChanged else { return false }
+            streamingTextView.string = text
+            streamingTextView.invalidateIntrinsicContentSize()
+            return true
+        }
+
+        if textChanged {
+            rebuildExpandedBody()
+            return true
+        }
+        return false
     }
 
     private func buildUI() {
@@ -339,6 +445,7 @@ private final class AiReasoningDisclosureView: NSView {
             bodyView.removeFromSuperview()
             self.bodyView = nil
         }
+        streamingTextView = nil
         if let collapseButton {
             stack.removeArrangedSubview(collapseButton)
             collapseButton.removeFromSuperview()
@@ -358,6 +465,7 @@ private final class AiReasoningDisclosureView: NSView {
             paragraph.lineSpacing = 3
             paragraph.paragraphSpacing = 5
             textView.defaultParagraphStyle = paragraph
+            streamingTextView = textView
             body = textView
         } else {
             body = MarkdownWithCodeBlocksView(
@@ -379,7 +487,6 @@ private final class AiReasoningDisclosureView: NSView {
         collapseButton = collapse
         stack.addArrangedSubview(collapse)
         collapse.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        onLayoutChange()
     }
 }
 

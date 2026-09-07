@@ -22,6 +22,8 @@ final class ResultPanelView: NSView {
     private var lastRequestRevision: Int
     private var isProgrammaticScroll = false
     private var isUpdatingDocumentLayout = false
+    private var isDocumentLayoutScheduled = false
+    private var lastScrollViewportSize = NSSize.zero
     private var lastObservedOffsetY: CGFloat = 0
     private var boundsObserver: NSObjectProtocol?
 
@@ -51,7 +53,13 @@ final class ResultPanelView: NSView {
 
     override func layout() {
         super.layout()
-        updateDocumentLayout(preserveUserOffset: !followTailState.isFollowingTail)
+        let viewportSize = scrollView.bounds.size
+        guard abs(viewportSize.width - lastScrollViewportSize.width) > 0.5 ||
+                abs(viewportSize.height - lastScrollViewportSize.height) > 0.5 else {
+            return
+        }
+        lastScrollViewportSize = viewportSize
+        scheduleDocumentLayout()
     }
 
     private func buildUI() {
@@ -183,11 +191,7 @@ final class ResultPanelView: NSView {
         refreshHeader()
         syncConversationRows()
         updateReturnToLatestVisibility()
-        updateDocumentLayout(preserveUserOffset: !followTailState.isFollowingTail)
-
-        if followTailState.isFollowingTail {
-            scrollToBottom()
-        }
+        scheduleDocumentLayout()
     }
 
     private func refreshHeader() {
@@ -211,75 +215,94 @@ final class ResultPanelView: NSView {
 
     private func syncConversationRows() {
         let messages = viewModel.conversationMessages
-        let validIDs = Set(messages.map(\.id))
+        let visibleMessages = messages.filter { $0.role != .system }
+        let validIDs = Set(visibleMessages.map(\.id))
         messageViews = messageViews.filter { validIDs.contains($0.key) }
 
-        var desiredViews: [NSView] = []
         var structure: [String] = []
-
         if viewModel.showsSourceTurn {
-            desiredViews.append(SourceTurnView(viewModel: viewModel))
             structure.append("source:\(viewModel.requestRevision):\(viewModel.isOriginalExpanded)")
         }
 
-        for message in messages where message.role != .system {
+        for message in visibleMessages {
             let isStreaming = message.id == viewModel.streamingAssistantID
             let opacity: CGFloat = viewModel.currentAction == .deepDive ? 0.78 : 1
-            let bubble: AiMessageBubble
             if let existing = messageViews[message.id] {
                 existing.update(
                     message: message,
                     isStreaming: isStreaming,
                     assistantContentOpacity: opacity
                 )
-                bubble = existing
             } else {
-                bubble = AiMessageBubble(
+                let bubble = AiMessageBubble(
                     message: message,
                     isStreaming: isStreaming,
                     assistantContentOpacity: opacity,
                     onLayoutChange: { [weak self] in
-                        DispatchQueue.main.async { self?.messageLayoutDidChange() }
+                        self?.messageLayoutDidChange()
                     }
                 )
                 messageViews[message.id] = bubble
             }
-            desiredViews.append(bubble)
             structure.append("message:\(message.id.uuidString)")
         }
 
         if viewModel.isLoading && viewModel.streamingAssistantID == nil {
-            desiredViews.append(PanelThinkingView())
             structure.append("thinking")
         }
-
         if let error = viewModel.errorMessage {
-            desiredViews.append(ErrorBubbleView(text: error))
             structure.append("error:\(error)")
         }
+        if !viewModel.isLoading && !viewModel.suggestions.isEmpty {
+            structure.append("suggestions:\(viewModel.suggestions.joined(separator: "|"))")
+        }
+        if !viewModel.isLoading && (viewModel.lastAssistantContent != nil || viewModel.canRetry) {
+            structure.append("actions:\(viewModel.canRetry):\(viewModel.lastAssistantContent != nil)")
+        }
 
+        guard structure != currentStructure else { return }
+        currentStructure = structure
+
+        var desiredViews: [NSView] = []
+        if viewModel.showsSourceTurn {
+            desiredViews.append(SourceTurnView(viewModel: viewModel))
+        }
+        for message in visibleMessages {
+            if let bubble = messageViews[message.id] {
+                desiredViews.append(bubble)
+            }
+        }
+        if viewModel.isLoading && viewModel.streamingAssistantID == nil {
+            desiredViews.append(PanelThinkingView())
+        }
+        if let error = viewModel.errorMessage {
+            desiredViews.append(ErrorBubbleView(text: error))
+        }
         if !viewModel.isLoading && !viewModel.suggestions.isEmpty {
             desiredViews.append(FollowUpSuggestionsView(suggestions: viewModel.suggestions) { [weak self] text in
                 self?.viewModel.askSuggestion(text)
             })
-            structure.append("suggestions:\(viewModel.suggestions.joined(separator: "|"))")
         }
-
         if !viewModel.isLoading && (viewModel.lastAssistantContent != nil || viewModel.canRetry) {
             desiredViews.append(AssistantActionsView(viewModel: viewModel))
-            structure.append("actions:\(viewModel.canRetry):\(viewModel.lastAssistantContent != nil)")
         }
-
-        if structure != currentStructure {
-            currentStructure = structure
-            documentView.setRows(desiredViews)
-        }
+        documentView.setRows(desiredViews)
     }
 
     private func messageLayoutDidChange() {
-        updateDocumentLayout(preserveUserOffset: !followTailState.isFollowingTail)
-        if followTailState.isFollowingTail {
-            scrollToBottom()
+        scheduleDocumentLayout()
+    }
+
+    private func scheduleDocumentLayout() {
+        guard !isDocumentLayoutScheduled else { return }
+        isDocumentLayoutScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isDocumentLayoutScheduled = false
+            self.updateDocumentLayout(preserveUserOffset: !self.followTailState.isFollowingTail)
+            if self.followTailState.isFollowingTail {
+                self.scrollToBottom()
+            }
         }
     }
 
@@ -327,14 +350,13 @@ final class ResultPanelView: NSView {
             movingTowardTail: movingTowardTail
         ) {
             viewModel.resumeStreamingPresentation()
-            scrollToBottom()
+            scheduleDocumentLayout()
         }
         updateReturnToLatestVisibility()
     }
 
     private func scrollToBottom() {
         guard followTailState.isFollowingTail else { return }
-        updateDocumentLayout(preserveUserOffset: false)
         let y = maxOffsetY
         isProgrammaticScroll = true
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
@@ -352,7 +374,6 @@ final class ResultPanelView: NSView {
         followTailState.resume()
         viewModel.resumeStreamingPresentation()
         render()
-        scrollToBottom()
     }
 
     @objc private func closePanel() {
