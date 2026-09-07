@@ -5,7 +5,7 @@ import Foundation
 final class AiAgentSession: ObservableObject {
     typealias Stream = ([AiMessage]) -> AsyncThrowingStream<String, Error>
     typealias Complete = ([AiMessage]) async throws -> String
-    typealias ModeAwareStream = ([AiMessage], DeepSeekService.RequestMode) -> AsyncThrowingStream<String, Error>
+    typealias ModeAwareStream = ([AiMessage], DeepSeekService.RequestMode) -> AsyncThrowingStream<AiStreamChunk, Error>
 
     @Published private(set) var messages: [AiMessage] = []
     @Published private(set) var currentAction: AiToolAction?
@@ -42,6 +42,7 @@ final class AiAgentSession: ObservableObject {
     private var retryPlan: RetryPlan?
     private var activeRequest: ActiveRequest?
     private var activeDraftContent = ""
+    private var activeDraftReasoning = ""
     private var lastDraftPublishNanoseconds: UInt64?
 
     init(
@@ -57,11 +58,26 @@ final class AiAgentSession: ObservableObject {
         self.publishIntervalNanoseconds = 40_000_000
     }
 
+    /// 保留文本流测试 seam；生产 transport 使用包含 content/reasoning 的 chunk。
     init(
         stream: @escaping Stream,
         publishIntervalNanoseconds: UInt64 = 40_000_000
     ) {
-        self.streamWithMode = { messages, _ in stream(messages) }
+        self.streamWithMode = { messages, _ in
+            AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        for try await text in stream(messages) {
+                            continuation.yield(AiStreamChunk(content: text))
+                        }
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
         self.publishIntervalNanoseconds = publishIntervalNanoseconds
     }
 
@@ -70,7 +86,7 @@ final class AiAgentSession: ObservableObject {
             AsyncThrowingStream { continuation in
                 let task = Task {
                     do {
-                        continuation.yield(try await complete(messages))
+                        continuation.yield(AiStreamChunk(content: try await complete(messages)))
                         continuation.finish()
                     } catch {
                         continuation.finish(throwing: error)
@@ -88,26 +104,38 @@ final class AiAgentSession: ObservableObject {
         messages.filter(\.isVisible)
     }
 
+    var lastAssistantMessage: AiMessage? {
+        messages.last(where: {
+            $0.role == .assistant &&
+            $0.isVisible &&
+            (!$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+             !$0.reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        })
+    }
+
     var lastAssistantContent: String? {
-        guard let lastMessage = messages.last,
-              lastMessage.role == .assistant,
-              lastMessage.isVisible,
-              !lastMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let lastAssistantMessage,
+              !lastAssistantMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        return lastMessage.content
+        return lastAssistantMessage.content
+    }
+
+    var lastAssistantSuggestions: [String] {
+        guard !isLoading else { return [] }
+        return lastAssistantMessage?.followUpSuggestions ?? []
     }
 
     var streamingAssistantID: UUID? {
         guard isLoading,
-              !activeDraftContent.isEmpty else {
+              !activeDraftContent.isEmpty || !activeDraftReasoning.isEmpty else {
             return nil
         }
         return activeRequest?.draftAssistantID
     }
 
     var canRetry: Bool {
-        !isLoading && currentAction != nil && (retryPlan != nil || lastAssistantContent != nil)
+        !isLoading && currentAction != nil && (retryPlan != nil || lastAssistantMessage != nil)
     }
 
     var canStop: Bool {
@@ -138,14 +166,19 @@ final class AiAgentSession: ObservableObject {
         errorMessage = nil
         didStop = true
 
-        let partial = activeDraftContent
-        if partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let parsed = AiResponseParser.parse(activeDraftContent)
+        let hasVisiblePartial =
+            !parsed.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !activeDraftReasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        if !hasVisiblePartial {
             rollback(activeRequest)
             retryPlan = activeRequest.failurePlan
         } else {
             publishDraft(
                 assistantID: activeRequest.draftAssistantID,
-                content: partial,
+                rawContent: activeDraftContent,
+                reasoning: activeDraftReasoning,
                 originalAssistant: activeRequest.originalAssistant
             )
             retryPlan = nil
@@ -153,6 +186,7 @@ final class AiAgentSession: ObservableObject {
 
         self.activeRequest = nil
         activeDraftContent = ""
+        activeDraftReasoning = ""
         lastDraftPublishNanoseconds = nil
     }
 
@@ -174,7 +208,10 @@ final class AiAgentSession: ObservableObject {
     @discardableResult
     func sendMessage(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, currentAction != nil, lastAssistantContent != nil, !isLoading else { return false }
+        guard !trimmed.isEmpty,
+              currentAction != nil,
+              lastAssistantContent != nil,
+              !isLoading else { return false }
 
         let userMessage = AiMessage(role: .user, content: trimmed)
         messages.append(userMessage)
@@ -194,7 +231,10 @@ final class AiAgentSession: ObservableObject {
                 messages.append(userMessage)
                 startRequest(rollbackUserID: userMessage.id, failurePlan: .appendUser(text))
             case .regenerate(let requestMessages, let replacingAssistant):
-                let plan = RetryPlan.regenerate(requestMessages: requestMessages, replacingAssistant: replacingAssistant)
+                let plan = RetryPlan.regenerate(
+                    requestMessages: requestMessages,
+                    replacingAssistant: replacingAssistant
+                )
                 startRequest(
                     requestMessages: requestMessages,
                     rollbackUserID: nil,
@@ -209,10 +249,15 @@ final class AiAgentSession: ObservableObject {
     }
 
     private func regenerateLastResponse() {
-        guard let lastMessage = messages.last, lastMessage.role == .assistant, lastMessage.isVisible else { return }
+        guard let lastMessage = messages.last,
+              lastMessage.role == .assistant,
+              lastMessage.isVisible else { return }
 
         let requestMessages = Array(messages.dropLast())
-        let plan = RetryPlan.regenerate(requestMessages: requestMessages, replacingAssistant: lastMessage)
+        let plan = RetryPlan.regenerate(
+            requestMessages: requestMessages,
+            replacingAssistant: lastMessage
+        )
         startRequest(
             requestMessages: requestMessages,
             rollbackUserID: nil,
@@ -256,6 +301,7 @@ final class AiAgentSession: ObservableObject {
         )
         activeRequest = request
         activeDraftContent = ""
+        activeDraftReasoning = ""
         lastDraftPublishNanoseconds = nil
         cancelPendingDraftPublish()
         isLoading = true
@@ -265,30 +311,39 @@ final class AiAgentSession: ObservableObject {
 
         currentTask = Task { [weak self] in
             guard let self else { return }
-            var accumulated = ""
+            var accumulatedContent = ""
+            var accumulatedReasoning = ""
 
             do {
                 for try await chunk in performer(requestMessages, requestMode) {
-                    guard !Task.isCancelled, self.generation == requestGeneration else { return }
-                    accumulated += chunk
-                    self.activeDraftContent = accumulated
+                    guard !Task.isCancelled,
+                          self.generation == requestGeneration else { return }
+                    accumulatedContent += chunk.content
+                    accumulatedReasoning += chunk.reasoning
+                    self.activeDraftContent = accumulatedContent
+                    self.activeDraftReasoning = accumulatedReasoning
                     self.queueDraftPublish(for: requestGeneration)
                 }
 
-                guard !Task.isCancelled, self.generation == requestGeneration else { return }
+                guard !Task.isCancelled,
+                      self.generation == requestGeneration else { return }
 
-                let finalContent = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
+                let parsed = AiResponseParser.parse(accumulatedContent)
+                let finalContent = parsed.content
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !finalContent.isEmpty else { throw DeepSeekError.emptyResult }
 
                 self.cancelPendingDraftPublish()
                 self.publishDraft(
                     assistantID: draftAssistantID,
-                    content: finalContent,
+                    rawContent: accumulatedContent,
+                    reasoning: accumulatedReasoning,
                     originalAssistant: originalAssistant
                 )
                 self.finishRequestSuccessfully()
             } catch {
-                guard !Task.isCancelled, self.generation == requestGeneration else { return }
+                guard !Task.isCancelled,
+                      self.generation == requestGeneration else { return }
 
                 self.cancelPendingDraftPublish()
                 self.rollback(request)
@@ -299,6 +354,7 @@ final class AiAgentSession: ObservableObject {
                 self.retryPlan = failurePlan
                 self.activeRequest = nil
                 self.activeDraftContent = ""
+                self.activeDraftReasoning = ""
                 self.lastDraftPublishNanoseconds = nil
             }
         }
@@ -323,20 +379,23 @@ final class AiAgentSession: ObservableObject {
             cancelPendingDraftPublish()
             publishDraft(
                 assistantID: activeRequest.draftAssistantID,
-                content: activeDraftContent,
+                rawContent: activeDraftContent,
+                reasoning: activeDraftReasoning,
                 originalAssistant: activeRequest.originalAssistant
             )
             lastDraftPublishNanoseconds = now
             return
         }
 
-        guard pendingDraftPublishTask == nil, let lastDraftPublishNanoseconds else { return }
+        guard pendingDraftPublishTask == nil,
+              let lastDraftPublishNanoseconds else { return }
 
         let elapsed = now &- lastDraftPublishNanoseconds
         if elapsed >= publishIntervalNanoseconds {
             publishDraft(
                 assistantID: activeRequest.draftAssistantID,
-                content: activeDraftContent,
+                rawContent: activeDraftContent,
+                reasoning: activeDraftReasoning,
                 originalAssistant: activeRequest.originalAssistant
             )
             self.lastDraftPublishNanoseconds = now
@@ -363,18 +422,31 @@ final class AiAgentSession: ObservableObject {
             self.pendingDraftPublishTask = nil
             self.publishDraft(
                 assistantID: draftAssistantID,
-                content: self.activeDraftContent,
+                rawContent: self.activeDraftContent,
+                reasoning: self.activeDraftReasoning,
                 originalAssistant: originalAssistant
             )
             self.lastDraftPublishNanoseconds = DispatchTime.now().uptimeNanoseconds
         }
     }
 
-    private func publishDraft(assistantID: UUID, content: String, originalAssistant: AiMessage?) {
-        let updated = AiMessage(id: assistantID, role: .assistant, content: content)
+    private func publishDraft(
+        assistantID: UUID,
+        rawContent: String,
+        reasoning: String,
+        originalAssistant: AiMessage?
+    ) {
+        let parsed = AiResponseParser.parse(rawContent)
+        let updated = AiMessage(
+            id: assistantID,
+            role: .assistant,
+            content: parsed.content,
+            reasoning: reasoning,
+            followUpSuggestions: parsed.followUpSuggestions
+        )
 
         if let index = messages.firstIndex(where: { $0.id == assistantID }) {
-            guard messages[index].content != content else { return }
+            guard messages[index] != updated else { return }
             draftRevision += 1
             messages[index] = updated
         } else if originalAssistant == nil {
@@ -391,6 +463,7 @@ final class AiAgentSession: ObservableObject {
         retryPlan = nil
         activeRequest = nil
         activeDraftContent = ""
+        activeDraftReasoning = ""
         lastDraftPublishNanoseconds = nil
     }
 
@@ -407,7 +480,10 @@ final class AiAgentSession: ObservableObject {
         }
     }
 
-    private func abortActiveRequest(rollback shouldRollback: Bool, preserveRetryPlan: Bool) {
+    private func abortActiveRequest(
+        rollback shouldRollback: Bool,
+        preserveRetryPlan: Bool
+    ) {
         generation += 1
         currentTask?.cancel()
         currentTask = nil
@@ -418,6 +494,7 @@ final class AiAgentSession: ObservableObject {
         isLoading = false
         activeRequest = nil
         activeDraftContent = ""
+        activeDraftReasoning = ""
         lastDraftPublishNanoseconds = nil
         if !preserveRetryPlan { retryPlan = nil }
     }

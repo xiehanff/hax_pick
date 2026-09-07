@@ -37,12 +37,13 @@ final class DeepSeekServiceTests: XCTestCase {
             AiMessage(role: .user, content: "为什么这样翻译？"),
         ]
 
-        var chunks: [String] = []
+        var chunks: [AiStreamChunk] = []
         for try await chunk in service.stream(messages: messages) {
             chunks.append(chunk)
         }
 
-        XCTAssertEqual(chunks, ["你", "好"])
+        XCTAssertEqual(chunks.map(\.content), ["你", "好"])
+        XCTAssertTrue(chunks.allSatisfy { $0.reasoning.isEmpty })
         XCTAssertEqual(client.recordedRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
 
         let body = try XCTUnwrap(client.recordedRequest?.httpBody)
@@ -54,6 +55,36 @@ final class DeepSeekServiceTests: XCTestCase {
         XCTAssertEqual(requestMessages.count, 4)
         XCTAssertEqual(requestMessages.map { $0["role"] as? String }, ["system", "user", "assistant", "user"])
         XCTAssertEqual(requestMessages[3]["content"] as? String, "为什么这样翻译？")
+    }
+
+    func testStreamYieldsReasoningAndAnswerAsIndependentChannels() async throws {
+        let client = MockDeepSeekStreamingHTTPClient(
+            lines: [
+                "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"先分析语境\"}}]}",
+                "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"，再组织答案\"}}]}",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"最终答案\"}}]}",
+                "data: [DONE]",
+            ],
+            response: Self.httpResponse(statusCode: 200)
+        )
+        let service = DeepSeekService(
+            apiKeyProvider: { "test-key" },
+            modelProvider: { .flash },
+            streamingClient: client
+        )
+
+        var reasoning = ""
+        var content = ""
+        for try await chunk in service.stream(
+            messages: [AiMessage(role: .user, content: "解释一下")],
+            mode: .lowReasoning
+        ) {
+            reasoning += chunk.reasoning
+            content += chunk.content
+        }
+
+        XCTAssertEqual(reasoning, "先分析语境，再组织答案")
+        XCTAssertEqual(content, "最终答案")
     }
 
     func testTranslationDisablesThinkingAndExplainUsesLowReasoning() async throws {
@@ -125,14 +156,14 @@ final class DeepSeekServiceTests: XCTestCase {
             streamingClient: client
         )
 
-        var chunks: [String] = []
+        var chunks: [AiStreamChunk] = []
         for try await chunk in service.stream(
             messages: [AiMessage(role: .user, content: "Hello")]
         ) {
             chunks.append(chunk)
         }
 
-        XCTAssertEqual(chunks, ["ok"])
+        XCTAssertEqual(chunks.map(\.content), ["ok"])
     }
 
     func testStreamRejectsEOFBeforeDoneAfterPartialContent() async {
@@ -148,7 +179,7 @@ final class DeepSeekServiceTests: XCTestCase {
             streamingClient: client
         )
 
-        var chunks: [String] = []
+        var chunks: [AiStreamChunk] = []
         do {
             for try await chunk in service.stream(
                 messages: [AiMessage(role: .user, content: "Hello")]
@@ -165,14 +196,14 @@ final class DeepSeekServiceTests: XCTestCase {
             XCTFail("Unexpected error: \(error)")
         }
 
-        XCTAssertEqual(chunks, ["partial"])
+        XCTAssertEqual(chunks.map(\.content), ["partial"])
     }
 
-    func testCompleteAggregatesStreamedChunks() async throws {
+    func testCompleteAggregatesStreamedChunksAndHidesSuggestionProtocol() async throws {
         let client = MockDeepSeekStreamingHTTPClient(
             lines: [
-                "data: {\"choices\":[{\"delta\":{\"content\":\" 结\"}}]}",
-                "data: {\"choices\":[{\"delta\":{\"content\":\"果 \"}}]}",
+                "data: {\"choices\":[{\"delta\":{\"content\":\" 结果\"}}]}",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"\\n<hax_follow_up_suggestions>\\n[\\\"继续解释\\\"]\\n</hax_follow_up_suggestions>\"}}]}",
                 "data: [DONE]",
             ],
             response: Self.httpResponse(statusCode: 200)
@@ -188,6 +219,31 @@ final class DeepSeekServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(result, "结果")
+    }
+
+    func testResponseParserExtractsContextualSuggestions() {
+        let raw = """
+        这里是正文。
+        <hax_follow_up_suggestions>
+        ["为什么会这样？", "给我一个具体例子", "和另一种做法有什么区别？"]
+        </hax_follow_up_suggestions>
+        """
+
+        let response = AiResponseParser.parse(raw)
+
+        XCTAssertEqual(response.content, "这里是正文。")
+        XCTAssertEqual(
+            response.followUpSuggestions,
+            ["为什么会这样？", "给我一个具体例子", "和另一种做法有什么区别？"]
+        )
+    }
+
+    func testResponseParserHidesIncompleteSuggestionTagDuringStreaming() {
+        let partial = "正文已经完成。\n<hax_follow_up_sugges"
+        let response = AiResponseParser.parse(partial)
+
+        XCTAssertEqual(response.content, "正文已经完成。")
+        XCTAssertTrue(response.followUpSuggestions.isEmpty)
     }
 
     func testStreamMissingAPIKeyDoesNotSendRequest() async {

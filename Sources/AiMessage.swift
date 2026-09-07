@@ -10,17 +10,23 @@ struct AiMessage: Identifiable, Equatable {
     let id: UUID
     let role: AiMessageRole
     let content: String
+    let reasoning: String
+    let followUpSuggestions: [String]
     let isVisible: Bool
 
     init(
         id: UUID = UUID(),
         role: AiMessageRole,
         content: String,
+        reasoning: String = "",
+        followUpSuggestions: [String] = [],
         isVisible: Bool = true
     ) {
         self.id = id
         self.role = role
         self.content = content
+        self.reasoning = reasoning
+        self.followUpSuggestions = followUpSuggestions
         self.isVisible = isVisible
     }
 }

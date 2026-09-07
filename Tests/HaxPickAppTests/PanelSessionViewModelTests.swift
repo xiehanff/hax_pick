@@ -29,7 +29,7 @@ final class PanelSessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedText, "selection-b")
         XCTAssertEqual(viewModel.conversationMessages.map(\.content), ["result-b"])
         XCTAssertFalse(viewModel.isLoading)
-        XCTAssertEqual(viewModel.statusHint, "生成完成")
+        XCTAssertEqual(viewModel.statusHint, "已完成")
     }
 
     func testDismissalDiscardsLateResultAfterSessionReuse() async throws {
@@ -69,10 +69,31 @@ final class PanelSessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.conversationMessages.first?.content, "summary")
         XCTAssertEqual(viewModel.lastAssistantContent, "summary")
         XCTAssertFalse(viewModel.isLoading)
-        XCTAssertEqual(viewModel.statusHint, "生成完成")
+        XCTAssertEqual(viewModel.statusHint, "已完成")
     }
 
-    func testStopBeforeFirstChunkShowsRegenerateHint() async throws {
+    func testDynamicSuggestionsComeFromAssistantResponse() async throws {
+        let responder = DeferredPanelResponder()
+        let viewModel = makeViewModel(responder: responder)
+
+        viewModel.reset(with: "selection")
+        viewModel.handlePrimaryAction(.explain)
+        try await waitForPendingRequest(in: responder)
+        responder.succeed(
+            """
+            这是回答。
+            <hax_follow_up_suggestions>
+            ["给我一个例子", "为什么这里容易误解？"]
+            </hax_follow_up_suggestions>
+            """
+        )
+        try await waitForCompletedAssistant(viewModel, content: "这是回答。")
+
+        XCTAssertEqual(viewModel.suggestions, ["给我一个例子", "为什么这里容易误解？"])
+        XCTAssertEqual(viewModel.conversationMessages.last?.content, "这是回答。")
+    }
+
+    func testStopBeforeFirstChunkShowsStoppedState() async throws {
         let responder = DeferredPanelStreamResponder()
         let session = AiAgentSession(
             stream: { messages in responder.stream(messages) },
@@ -90,7 +111,7 @@ final class PanelSessionViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.didStop)
         XCTAssertNil(viewModel.lastAssistantContent)
         XCTAssertTrue(viewModel.canRetry)
-        XCTAssertEqual(viewModel.statusHint, "已停止，可重新生成")
+        XCTAssertEqual(viewModel.statusHint, "已停止")
     }
 
     private func makeViewModel(responder: DeferredPanelResponder) -> PanelSessionViewModel {
