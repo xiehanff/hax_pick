@@ -27,6 +27,20 @@ extension URLSession: DeepSeekStreamingHTTPClient {
     }
 }
 
+struct AiStreamChunk: Equatable {
+    let content: String
+    let reasoning: String
+
+    init(content: String = "", reasoning: String = "") {
+        self.content = content
+        self.reasoning = reasoning
+    }
+
+    var isEmpty: Bool {
+        content.isEmpty && reasoning.isEmpty
+    }
+}
+
 struct DeepSeekService {
     enum RequestMode {
         case standard
@@ -82,7 +96,7 @@ struct DeepSeekService {
     func stream(
         messages: [AiMessage],
         mode: RequestMode = .standard
-    ) -> AsyncThrowingStream<String, Error> {
+    ) -> AsyncThrowingStream<AiStreamChunk, Error> {
         let apiKey = apiKeyProvider()
         let model = modelProvider()
         let streamingClient = streamingClient
@@ -138,11 +152,15 @@ struct DeepSeekService {
                         }
                         let decoded = try JSONDecoder().decode(StreamResponse.self, from: data)
                         for choice in decoded.choices {
-                            guard let content = choice.delta.content, !content.isEmpty else {
-                                continue
+                            let chunk = AiStreamChunk(
+                                content: choice.delta.content ?? "",
+                                reasoning: choice.delta.reasoningText
+                            )
+                            guard !chunk.isEmpty else { continue }
+                            if !chunk.content.isEmpty {
+                                emittedContent = true
                             }
-                            emittedContent = true
-                            continuation.yield(content)
+                            continuation.yield(chunk)
                         }
                     }
 
@@ -167,9 +185,10 @@ struct DeepSeekService {
     func complete(messages: [AiMessage]) async throws -> String {
         var output = ""
         for try await chunk in stream(messages: messages) {
-            output += chunk
+            output += chunk.content
         }
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = AiResponseParser.parse(output).content
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw DeepSeekError.emptyResult
         }
@@ -309,6 +328,27 @@ private struct StreamResponse: Decodable {
 
     struct Delta: Decodable {
         let content: String?
+        let reasoningContent: String?
+        let reasoning: String?
+        let thinking: String?
+        let thought: String?
+
+        enum CodingKeys: String, CodingKey {
+            case content
+            case reasoningContent = "reasoning_content"
+            case reasoning
+            case thinking
+            case thought
+        }
+
+        var reasoningText: String {
+            for value in [reasoningContent, reasoning, thinking, thought] {
+                if let value, !value.isEmpty {
+                    return value
+                }
+            }
+            return ""
+        }
     }
 }
 
