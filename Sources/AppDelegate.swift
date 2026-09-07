@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = AppTheme.windowAppearance
         configureStatusItem()
         AppState.shared.start()
     }
@@ -50,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller = created
         }
         NSApp.activate(ignoringOtherApps: true)
+        controller.window?.appearance = AppTheme.windowAppearance
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
     }
