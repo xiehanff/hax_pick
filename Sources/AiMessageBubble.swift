@@ -71,9 +71,6 @@ private struct AiReasoningDisclosure: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 11, weight: .medium))
-
                     Text("思考过程")
                         .font(.system(size: 11.5, weight: .medium))
 
@@ -105,7 +102,6 @@ private struct AiReasoningDisclosure: View {
                 }
                 .foregroundColor(AppTheme.textSecondary)
                 .textSelection(.enabled)
-                .padding(.leading, 17)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
