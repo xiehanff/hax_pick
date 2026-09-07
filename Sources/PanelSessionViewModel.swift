@@ -18,7 +18,10 @@ final class PanelSessionViewModel: ObservableObject {
     private let aiSession: AiAgentSession
     private let onClose: () -> Void
     private var agentObservation: AnyCancellable?
+    private var loadingObservation: AnyCancellable?
     private var isDismissed = false
+    private var isStreamingPresentationPaused = false
+    private var hasDeferredAgentUpdate = false
 
     init(service: DeepSeekService, onClose: @escaping () -> Void) {
         self.aiSession = AiAgentSession(service: service)
@@ -70,6 +73,8 @@ final class PanelSessionViewModel: ObservableObject {
     func reset(with text: String) {
         aiSession.clear()
         isDismissed = false
+        isStreamingPresentationPaused = false
+        hasDeferredAgentUpdate = false
         selectedText = text
         followUpInput = ""
         isOriginalExpanded = false
@@ -84,6 +89,7 @@ final class PanelSessionViewModel: ObservableObject {
             copyOriginalText()
             close()
         default:
+            resumeStreamingPresentation()
             mode = .result
             onModeChanged?(.result)
             aiSession.runToolAction(action, sourceText: selectedText)
@@ -92,6 +98,7 @@ final class PanelSessionViewModel: ObservableObject {
 
     func retry() {
         guard !isDismissed else { return }
+        resumeStreamingPresentation()
         aiSession.retry()
     }
 
@@ -103,6 +110,7 @@ final class PanelSessionViewModel: ObservableObject {
     /// 新会话保留当前划词原文和任务类型，但清空旧问答并重新生成第一轮。
     func startNewConversation() {
         guard !isDismissed, !isLoading, let action = currentAction else { return }
+        resumeStreamingPresentation()
         followUpInput = ""
         isOriginalExpanded = false
         aiSession.runToolAction(action, sourceText: selectedText)
@@ -111,6 +119,7 @@ final class PanelSessionViewModel: ObservableObject {
     func submitFollowUp() {
         let text = followUpInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !isDismissed, !text.isEmpty else { return }
+        resumeStreamingPresentation()
         if aiSession.sendMessage(text) {
             followUpInput = ""
         }
@@ -118,7 +127,25 @@ final class PanelSessionViewModel: ObservableObject {
 
     func askSuggestion(_ suggestion: String) {
         guard !isDismissed else { return }
+        resumeStreamingPresentation()
         _ = aiSession.sendMessage(suggestion)
+    }
+
+    /// 用户离开最新位置阅读历史时，只暂停昂贵的 SwiftUI 发布。
+    /// SSE 与 AiAgentSession 仍继续完整累计内容。
+    func pauseStreamingPresentation() {
+        guard aiSession.isLoading, !isStreamingPresentationPaused else { return }
+        isStreamingPresentationPaused = true
+        hasDeferredAgentUpdate = false
+    }
+
+    /// 回到最新位置时一次性把累计到现在的 draft 刷给 UI，再恢复正常流式刷新。
+    func resumeStreamingPresentation() {
+        guard isStreamingPresentationPaused else { return }
+        isStreamingPresentationPaused = false
+        guard hasDeferredAgentUpdate else { return }
+        hasDeferredAgentUpdate = false
+        objectWillChange.send()
     }
 
     func copyOriginalText() {
@@ -150,7 +177,24 @@ final class PanelSessionViewModel: ObservableObject {
 
     private func observeAgentSession() {
         agentObservation = aiSession.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            guard let self else { return }
+            if self.isStreamingPresentationPaused {
+                self.hasDeferredAgentUpdate = true
+                return
+            }
+            self.objectWillChange.send()
         }
+
+        // objectWillChange 在属性真正变化前触发，因此额外观察 isLoading 的
+        // post-change publisher，确保用户一直停留在历史位置时，最终完成态仍刷新一次。
+        loadingObservation = aiSession.$isLoading
+            .removeDuplicates()
+            .sink { [weak self] isLoading in
+                guard let self, !isLoading, self.isStreamingPresentationPaused else { return }
+                self.isStreamingPresentationPaused = false
+                guard self.hasDeferredAgentUpdate else { return }
+                self.hasDeferredAgentUpdate = false
+                self.objectWillChange.send()
+            }
     }
 }
