@@ -229,7 +229,6 @@ struct MenuBarContentView: View {
             .buttonStyle(.plain)
             .font(.system(size: 10.5))
             .foregroundColor(AppTheme.textSecondary)
-            .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 4)
         .padding(.bottom, 2)
