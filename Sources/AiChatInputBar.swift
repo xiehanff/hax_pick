@@ -68,7 +68,10 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         inputTextView.textContainerInset = NSSize(width: 0, height: 2)
         inputTextView.textContainer?.lineFragmentPadding = 0
         inputTextView.textContainer?.widthTracksTextView = true
-        inputTextView.textContainer?.containerSize = NSSize(width: 0, height: .greatestFiniteMagnitude)
+        inputTextView.textContainer?.containerSize = NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         inputScrollView.documentView = inputTextView
 
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
