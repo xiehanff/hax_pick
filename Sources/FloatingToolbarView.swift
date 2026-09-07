@@ -61,12 +61,6 @@ struct FloatingToolbarView: View {
             }
 
             ToolbarTextButton(
-                title: "深度理解",
-                foregroundColor: .black
-            )
-            .help("暂未实现")
-
-            ToolbarTextButton(
                 title: "润色",
                 foregroundColor: .black
             )
