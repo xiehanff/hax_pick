@@ -134,6 +134,11 @@ final class AiAgentSession: ObservableObject {
         return activeRequest?.draftAssistantID
     }
 
+    var canSendMessage: Bool {
+        guard !isLoading, let currentAction else { return false }
+        return currentAction == .chat || lastAssistantContent != nil
+    }
+
     var canRetry: Bool {
         !isLoading && currentAction != nil && (retryPlan != nil || lastAssistantMessage != nil)
     }
@@ -153,6 +158,22 @@ final class AiAgentSession: ObservableObject {
 
     func cancel() {
         abortActiveRequest(rollback: true, preserveRetryPlan: false)
+    }
+
+    /// 开启完全独立的自由问答会话。若当前仍有请求，先取消并丢弃其未完成上下文。
+    func startFreeChat() {
+        abortActiveRequest(rollback: true, preserveRetryPlan: false)
+        currentAction = .chat
+        errorMessage = nil
+        didStop = false
+        retryPlan = nil
+        messages = [
+            AiMessage(
+                role: .system,
+                content: AiPrompts.systemPrompt(for: .chat),
+                isVisible: false
+            ),
+        ]
     }
 
     func stopGeneration() {
@@ -192,6 +213,10 @@ final class AiAgentSession: ObservableObject {
 
     func runToolAction(_ action: AiToolAction, sourceText: String) {
         guard action != .copy else { return }
+        if action == .chat {
+            startFreeChat()
+            return
+        }
 
         abortActiveRequest(rollback: true, preserveRetryPlan: false)
         currentAction = action
@@ -208,10 +233,7 @@ final class AiAgentSession: ObservableObject {
     @discardableResult
     func sendMessage(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              currentAction != nil,
-              lastAssistantContent != nil,
-              !isLoading else { return false }
+        guard !trimmed.isEmpty, canSendMessage else { return false }
 
         let userMessage = AiMessage(role: .user, content: trimmed)
         messages.append(userMessage)
@@ -366,6 +388,8 @@ final class AiAgentSession: ObservableObject {
             return .translation
         case .explain:
             return .lowReasoning
+        case .deepDive:
+            return .deepDive
         default:
             return .standard
         }

@@ -76,7 +76,9 @@ struct ResultPanelView: View {
             ZStack(alignment: .bottomTrailing) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        SourceTurnBubble(viewModel: viewModel)
+                        if viewModel.showsSourceTurn {
+                            SourceTurnBubble(viewModel: viewModel)
+                        }
 
                         ForEach(viewModel.conversationMessages) { message in
                             AiMessageBubble(
@@ -234,11 +236,11 @@ private struct SourceTurnBubble: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(viewModel.currentAction?.rawValue ?? "原文")
                 .font(.system(size: 9.5, weight: .semibold))
-                .foregroundColor(AppTheme.textSecondary)
+                .foregroundColor(Color.white.opacity(0.62))
 
             Text(viewModel.selectedText)
                 .font(.system(size: 12.5))
-                .foregroundColor(AppTheme.textPrimary)
+                .foregroundColor(Color.white.opacity(0.94))
                 .lineSpacing(3)
                 .lineLimit(viewModel.isOriginalExpanded ? nil : 6)
                 .textSelection(.enabled)
@@ -249,13 +251,13 @@ private struct SourceTurnBubble: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundColor(AppTheme.accent)
+                .foregroundColor(Color.white.opacity(0.76))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(AppTheme.mutedBg)
+        .background(Color(hex: 0x303136).opacity(0.96))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

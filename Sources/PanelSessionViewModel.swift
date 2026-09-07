@@ -48,6 +48,14 @@ final class PanelSessionViewModel: ObservableObject {
     var draftRevision: Int { aiSession.draftRevision }
     var requestRevision: Int { aiSession.requestRevision }
 
+    var isFreeChat: Bool {
+        currentAction == .chat
+    }
+
+    var showsSourceTurn: Bool {
+        !isFreeChat && !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var titleText: String {
         currentAction?.resultTitle ?? "AI 对话"
     }
@@ -57,24 +65,24 @@ final class PanelSessionViewModel: ObservableObject {
         if didStop { return "已停止" }
         if errorMessage != nil { return "请求失败" }
         if lastAssistantContent != nil { return "已完成" }
+        if isFreeChat { return "等待提问" }
         return "等待开始"
     }
 
     var canSubmitFollowUp: Bool {
-        lastAssistantContent != nil &&
-            !followUpInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !isLoading
+        aiSession.canSendMessage &&
+            !followUpInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// 结果面板出现后始终允许新建自由会话；即使正在生成，也会先停止当前请求。
     var canStartNewConversation: Bool {
-        currentAction != nil && !isLoading
+        currentAction != nil
     }
 
     func reset(with text: String) {
         aiSession.clear()
         isDismissed = false
-        isStreamingPresentationPaused = false
-        hasDeferredAgentUpdate = false
+        resetStreamingPresentationState()
         selectedText = text
         followUpInput = ""
         isOriginalExpanded = false
@@ -88,6 +96,13 @@ final class PanelSessionViewModel: ObservableObject {
         case .copy:
             copyOriginalText()
             close()
+        case .chat:
+            resetStreamingPresentationState()
+            followUpInput = ""
+            isOriginalExpanded = false
+            mode = .result
+            onModeChanged?(.result)
+            aiSession.startFreeChat()
         default:
             resumeStreamingPresentation()
             mode = .result
@@ -107,13 +122,13 @@ final class PanelSessionViewModel: ObservableObject {
         aiSession.stopGeneration()
     }
 
-    /// 新会话保留当前划词原文和任务类型，但清空旧问答并重新生成第一轮。
+    /// `+` 始终创建一个全新的自由问答 session；若当前仍在生成，会先取消当前请求。
     func startNewConversation() {
-        guard !isDismissed, !isLoading, let action = currentAction else { return }
-        resumeStreamingPresentation()
+        guard !isDismissed else { return }
+        resetStreamingPresentationState()
         followUpInput = ""
         isOriginalExpanded = false
-        aiSession.runToolAction(action, sourceText: selectedText)
+        aiSession.startFreeChat()
     }
 
     func submitFollowUp() {
@@ -173,6 +188,11 @@ final class PanelSessionViewModel: ObservableObject {
 
     func close() {
         onClose()
+    }
+
+    private func resetStreamingPresentationState() {
+        isStreamingPresentationPaused = false
+        hasDeferredAgentUpdate = false
     }
 
     private func observeAgentSession() {

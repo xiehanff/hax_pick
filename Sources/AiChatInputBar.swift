@@ -9,7 +9,7 @@ struct AiChatInputBar: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 TextField(
-                    viewModel.isLoading ? "正在生成…" : "继续提问…",
+                    inputPlaceholder,
                     text: $viewModel.followUpInput,
                     axis: .vertical
                 )
@@ -18,7 +18,6 @@ struct AiChatInputBar: View {
                 .foregroundColor(AppTheme.textPrimary)
                 .lineLimit(1...4)
                 .disabled(viewModel.isLoading)
-                .onSubmit(viewModel.submitFollowUp)
 
                 HStack(spacing: 6) {
                     Button {
@@ -30,12 +29,8 @@ struct AiChatInputBar: View {
                     }
                     .buttonStyle(ComposerIconButtonStyle())
                     .disabled(!viewModel.canStartNewConversation)
-                    .help("新建会话")
-                    .accessibilityLabel("新建会话")
-
-                    Text(viewModel.isLoading ? "生成中" : "Return 发送")
-                        .font(.system(size: 9.5))
-                        .foregroundColor(AppTheme.textSecondary.opacity(0.72))
+                    .help("新建自由会话")
+                    .accessibilityLabel("新建自由会话")
 
                     Spacer(minLength: 8)
 
@@ -79,6 +74,13 @@ struct AiChatInputBar: View {
             .padding(.vertical, 9)
         }
         .background(Color.white.opacity(0.72))
+    }
+
+    private var inputPlaceholder: String {
+        if viewModel.isLoading {
+            return "正在生成…"
+        }
+        return viewModel.isFreeChat ? "想聊什么都可以…" : "继续提问…"
     }
 }
 

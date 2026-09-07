@@ -34,7 +34,7 @@ enum AppTheme {
 // MARK: - 悬浮面板尺寸
 
 enum FloatingPanelLayout {
-    static let toolbarSize = NSSize(width: 378, height: 48)
+    static let toolbarSize = NSSize(width: 420, height: 48)
     static let resultWidthFraction: CGFloat = 0.36
     static let resultMinimumWidth: CGFloat = 460
     static let resultMaximumWidth: CGFloat = 560
