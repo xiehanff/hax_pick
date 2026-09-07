@@ -1,6 +1,7 @@
 import AppKit
 
 @main
+@MainActor
 enum HaxPickApp {
     private static let appDelegate = AppDelegate()
 
