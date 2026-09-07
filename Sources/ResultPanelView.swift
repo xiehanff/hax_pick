@@ -152,12 +152,6 @@ struct ResultPanelView: View {
                     ManualScrollInteractionMonitor {
                         followTailState.userDidScroll()
                         viewModel.pauseStreamingPresentation()
-
-                        // event monitor 在滚动事件后回调；再延后一轮，让 SwiftUI 先提交
-                        // 实际 viewport/tail 几何。若用户仍在底部附近，则无需保持暂停。
-                        DispatchQueue.main.async {
-                            restoreFollowingIfTailReached()
-                        }
                     }
                 )
 
@@ -177,11 +171,23 @@ struct ResultPanelView: View {
             }
             .onPreferenceChange(ConversationViewportHeightPreferenceKey.self) { height in
                 conversationViewportHeight = height
-                restoreFollowingIfTailReached()
             }
             .onPreferenceChange(ConversationTailMaxYPreferenceKey.self) { maxY in
+                let previousMaxY = tailMaxY
                 tailMaxY = maxY
-                restoreFollowingIfTailReached()
+
+                guard previousMaxY.isFinite else { return }
+                let movingTowardTail = maxY < previousMaxY - 0.5
+                let extentAfter = max(0, maxY - conversationViewportHeight)
+                guard followTailState.tailPositionDidChange(
+                    extentAfter: extentAfter,
+                    movingTowardTail: movingTowardTail
+                ) else { return }
+
+                viewModel.resumeStreamingPresentation()
+                DispatchQueue.main.async {
+                    proxy.scrollTo(tailID, anchor: .bottom)
+                }
             }
             .onChange(of: scrollSignal) { _ in
                 guard followTailState.isFollowingTail else { return }
@@ -198,14 +204,6 @@ struct ResultPanelView: View {
             }
         }
         .frame(maxHeight: .infinity)
-    }
-
-    private func restoreFollowingIfTailReached() {
-        guard followTailState.tailPositionDidChange(
-            tailMaxY: tailMaxY,
-            viewportHeight: conversationViewportHeight
-        ) else { return }
-        viewModel.resumeStreamingPresentation()
     }
 
     private var assistantActions: some View {
@@ -467,7 +465,7 @@ private struct ReturnToLatestButtonStyle: ButtonStyle {
 
 struct ChatFollowTailState: Equatable {
     private(set) var isFollowingTail = true
-    static let resumeThreshold: CGFloat = 36
+    static let resumeThreshold: CGFloat = 80
 
     mutating func userDidScroll() {
         guard isFollowingTail else { return }
@@ -486,13 +484,13 @@ struct ChatFollowTailState: Equatable {
 
     @discardableResult
     mutating func tailPositionDidChange(
-        tailMaxY: CGFloat,
-        viewportHeight: CGFloat
+        extentAfter: CGFloat,
+        movingTowardTail: Bool
     ) -> Bool {
         guard !isFollowingTail,
-              viewportHeight > 0,
-              tailMaxY.isFinite,
-              tailMaxY <= viewportHeight + Self.resumeThreshold else {
+              movingTowardTail,
+              extentAfter.isFinite,
+              extentAfter <= Self.resumeThreshold else {
             return false
         }
 
