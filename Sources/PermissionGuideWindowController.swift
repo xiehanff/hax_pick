@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 @MainActor
 final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
@@ -25,13 +24,9 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let view = PermissionGuideView(
+        let controller = PermissionGuideViewController(
             appState: appState ?? AppState.shared,
             onClose: { [weak self] in self?.dismiss() }
-        )
-        let contentView = AppTheme.makeHostingView(
-            rootView: view,
-            size: Self.panelSize
         )
 
         let panel = HaxPickPanel(
@@ -53,7 +48,7 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.contentView = contentView
+        panel.contentViewController = controller
         panel.center()
 
         self.panel = panel
