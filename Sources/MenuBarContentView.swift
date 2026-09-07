@@ -7,53 +7,23 @@ struct MenuBarContentView: View {
     @State private var apiKeyDraft = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             header
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-
-            SoftDivider(horizontalInset: 12)
-
-            permissionSection
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-
-            SoftDivider(horizontalInset: 12)
-
-            apiKeySection
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-
-            SoftDivider(horizontalInset: 12)
-
-            modelSection
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-            SoftDivider(horizontalInset: 12)
-
-            bottomActions
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
+            runtimeCard
+            aiSettingsCard
+            footer
         }
-        .frame(width: 304)
+        .padding(12)
+        .frame(width: 336)
         .background(AppTheme.panelContent)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: AppTheme.menuCorner - 8,
-                style: .continuous
-            )
-        )
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.menuCorner, style: .continuous))
         .compositingGroup()
         .overlay {
-            RoundedRectangle(
-                cornerRadius: AppTheme.menuCorner - 8,
-                style: .continuous
-            )
-            .stroke(Color.white.opacity(0.76), lineWidth: 0.75)
+            RoundedRectangle(cornerRadius: AppTheme.menuCorner, style: .continuous)
+                .stroke(Color.white.opacity(0.78), lineWidth: 0.75)
         }
-        .padding(8)
-        .frame(width: 320)
+        .padding(7)
+        .frame(width: 350)
         .background(ClearMenuWindowBackground())
         .environment(\.colorScheme, .light)
         .onAppear {
@@ -63,186 +33,195 @@ struct MenuBarContentView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            AppBrandIcon(size: 30)
+            AppBrandIcon(size: 32)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("HaxPick")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(AppTheme.textPrimary)
 
-                Text(appState.statusMessage)
+                Text("划词 AI 助手")
                     .font(.system(size: 10.5))
                     .foregroundColor(AppTheme.textSecondary)
-                    .lineLimit(2)
             }
-
-            Spacer(minLength: 10)
-
-            Circle()
-                .fill(appState.permissionGranted ? AppTheme.success : Color.orange)
-                .frame(width: 7, height: 7)
-                .accessibilityLabel(appState.permissionGranted ? "运行正常" : "需要辅助功能权限")
-        }
-    }
-
-    private var permissionSection: some View {
-        VStack(alignment: .leading, spacing: appState.permissionGranted ? 0 : 9) {
-            HStack(spacing: 9) {
-                Image(systemName: "hand.raised")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(AppTheme.textSecondary)
-                    .frame(width: 18)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("辅助功能")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(AppTheme.textPrimary)
-                    Text(appState.permissionGranted ? "已开启，可监听全局划词" : "开启后才能读取选中的文本")
-                        .font(.system(size: 10.5))
-                        .foregroundColor(AppTheme.textSecondary)
-                }
-
-                Spacer()
-
-                Text(appState.permissionGranted ? "已开启" : "未开启")
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundColor(appState.permissionGranted ? AppTheme.success : Color.orange)
-
-                Button {
-                    appState.refreshPermissionStatus()
-                } label: {
-                    HaxIcon(asset: .refresh)
-                        .frame(width: 12, height: 12)
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(AppTheme.textSecondary)
-                .help("刷新权限状态")
-                .accessibilityLabel("刷新权限状态")
-            }
-
-            if !appState.permissionGranted {
-                Button("开启辅助功能") {
-                    appState.showPermissionGuide()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(AppTheme.accent)
-                .padding(.leading, 27)
-            }
-        }
-    }
-
-    private var apiKeySection: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("DEEPSEEK API KEY")
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundColor(AppTheme.textSecondary)
-                .tracking(0.5)
-
-            HStack(spacing: 7) {
-                HStack(spacing: 4) {
-                    Group {
-                        if apiKeyVisible {
-                            TextField("输入 API Key", text: $apiKeyDraft)
-                        } else {
-                            SecureField("输入 API Key", text: $apiKeyDraft)
-                        }
-                    }
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11.5))
-                    .foregroundColor(AppTheme.textPrimary)
-
-                    Button {
-                        apiKeyVisible.toggle()
-                    } label: {
-                        Image(systemName: apiKeyVisible ? "eye.slash" : "eye")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(AppTheme.textSecondary)
-                            .frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.plain)
-                    .help(apiKeyVisible ? "隐藏 API Key" : "显示 API Key")
-                }
-                .padding(.leading, 9)
-                .padding(.trailing, 4)
-                .frame(height: 30)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(AppTheme.border, lineWidth: 1)
-                }
-
-                if appState.canRetryAPIKeyStorage {
-                    Button("重试") {
-                        retryAPIKeyStorage()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                } else {
-                    Button("保存") {
-                        saveAPIKey()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(!hasAPIKeyChanges && appState.apiKeyStorageError == nil)
-                }
-            }
-
-            Text(apiKeyStatusMessage)
-                .font(.system(size: 9.5))
-                .foregroundColor(apiKeyStatusColor)
-                .lineLimit(2)
-        }
-    }
-
-    private var modelSection: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "cpu")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(AppTheme.textSecondary)
-                .frame(width: 18)
-
-            Text("模型")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(AppTheme.textPrimary)
 
             Spacer()
 
-            Picker("模型", selection: $appState.selectedModel) {
-                ForEach(appState.availableModels()) { model in
-                    Text(model.displayName).tag(model)
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(appState.permissionGranted ? AppTheme.success : .orange)
+                    .frame(width: 6, height: 6)
+                Text(appState.permissionGranted ? "运行中" : "需要权限")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(AppTheme.textSecondary)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(AppTheme.mutedBg.opacity(0.72))
+            .clipShape(Capsule())
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
+    }
+
+    private var runtimeCard: some View {
+        MenuCard(title: "运行状态", symbol: "waveform.path.ecg") {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("辅助功能")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(AppTheme.textPrimary)
+                    Text(appState.permissionGranted ? "已开启，可以监听全局划词" : "开启后才能读取其他应用中的选中文本")
+                        .font(.system(size: 10.5))
+                        .foregroundColor(AppTheme.textSecondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 8)
+
+                if appState.permissionGranted {
+                    Button {
+                        appState.refreshPermissionStatus()
+                    } label: {
+                        HaxIcon(asset: .refresh)
+                            .frame(width: 12, height: 12)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(MenuIconButtonStyle())
+                    .help("刷新权限状态")
+                } else {
+                    Button("去开启") {
+                        appState.showPermissionGuide()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(AppTheme.accent)
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .controlSize(.small)
-            .frame(width: 148)
         }
     }
 
-    private var bottomActions: some View {
-        HStack(spacing: 4) {
+    private var aiSettingsCard: some View {
+        MenuCard(title: "AI 设置", symbol: "sparkles") {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("模型")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(AppTheme.textPrimary)
+                        Text("对划词动作和后续对话同时生效")
+                            .font(.system(size: 9.5))
+                            .foregroundColor(AppTheme.textSecondary)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Picker("模型", selection: $appState.selectedModel) {
+                        ForEach(appState.availableModels()) { model in
+                            Text(model.displayName).tag(model)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .frame(width: 154)
+                }
+
+                Rectangle()
+                    .fill(AppTheme.border.opacity(0.7))
+                    .frame(height: 0.5)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("DeepSeek API Key")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(AppTheme.textPrimary)
+                        Spacer()
+                        Text(appState.apiKey.isEmpty ? "未配置" : "已配置")
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundColor(appState.apiKey.isEmpty ? .orange : AppTheme.success)
+                    }
+
+                    HStack(spacing: 7) {
+                        HStack(spacing: 4) {
+                            Group {
+                                if apiKeyVisible {
+                                    TextField("sk-…", text: $apiKeyDraft)
+                                } else {
+                                    SecureField("sk-…", text: $apiKeyDraft)
+                                }
+                            }
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 11.5))
+                            .foregroundColor(AppTheme.textPrimary)
+
+                            Button {
+                                apiKeyVisible.toggle()
+                            } label: {
+                                Image(systemName: apiKeyVisible ? "eye.slash" : "eye")
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .frame(width: 22, height: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(AppTheme.textSecondary)
+                            .help(apiKeyVisible ? "隐藏 API Key" : "显示 API Key")
+                        }
+                        .padding(.leading, 9)
+                        .padding(.trailing, 4)
+                        .frame(height: 31)
+                        .background(Color.white.opacity(0.9))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(AppTheme.border, lineWidth: 0.75)
+                        }
+
+                        if appState.canRetryAPIKeyStorage {
+                            Button("重试") {
+                                retryAPIKeyStorage()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        } else {
+                            Button("保存") {
+                                saveAPIKey()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .tint(AppTheme.accent)
+                            .disabled(!hasAPIKeyChanges && appState.apiKeyStorageError == nil)
+                        }
+                    }
+
+                    Text(apiKeyStatusMessage)
+                        .font(.system(size: 9.5))
+                        .foregroundColor(apiKeyStatusColor)
+                        .lineLimit(2)
+                }
+            }
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
             Text("v\(appState.appVersion)")
                 .font(.system(size: 9.5))
-                .foregroundColor(AppTheme.textSecondary.opacity(0.82))
+                .foregroundColor(AppTheme.textSecondary.opacity(0.78))
 
             Spacer()
 
             Button {
                 appState.openAccessibilitySettings()
             } label: {
-                Label("系统设置", systemImage: "gearshape")
+                Label("辅助功能设置", systemImage: "gearshape")
             }
             .buttonStyle(.plain)
             .font(.system(size: 10.5))
             .foregroundColor(AppTheme.textSecondary)
 
             Rectangle()
-                .fill(Color.black.opacity(0.07))
+                .fill(AppTheme.border)
                 .frame(width: 0.5, height: 13)
-                .padding(.horizontal, 5)
 
             Button("退出") {
                 appState.quitApp()
@@ -252,6 +231,8 @@ struct MenuBarContentView: View {
             .foregroundColor(AppTheme.textSecondary)
             .keyboardShortcut(.cancelAction)
         }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 2)
     }
 
     private var hasAPIKeyChanges: Bool {
@@ -281,6 +262,49 @@ struct MenuBarContentView: View {
         if draftWasUnmodified {
             apiKeyDraft = appState.apiKey
         }
+    }
+}
+
+private struct MenuCard<Content: View>: View {
+    let title: String
+    let symbol: String
+    @ViewBuilder let content: Content
+
+    init(title: String, symbol: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.symbol = symbol
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10.5, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 10.5, weight: .semibold))
+            }
+            .foregroundColor(AppTheme.textSecondary)
+
+            content
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.62))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(AppTheme.border.opacity(0.85), lineWidth: 0.75)
+        }
+    }
+}
+
+private struct MenuIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundColor(AppTheme.textSecondary)
+            .background(AppTheme.mutedBg.opacity(configuration.isPressed ? 0.9 : 0.58))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
