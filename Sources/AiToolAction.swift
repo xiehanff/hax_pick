@@ -4,6 +4,8 @@ enum AiToolAction: String, CaseIterable, Identifiable {
     case copy = "复制"
     case translate = "翻译"
     case explain = "解释"
+    case deepDive = "深度理解"
+    case chat = "随便聊"
     case summarize = "总结"
     case polish = "润色"
     case rewrite = "改写"
@@ -11,8 +13,8 @@ enum AiToolAction: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// 当前划词工具条只暴露翻译和解释；复制作为独立基础操作展示。
-    static let primaryActions: [AiToolAction] = [.translate, .explain]
+    /// 当前划词工具条暴露翻译、解释、深度理解和自由问答；复制作为独立基础操作展示。
+    static let primaryActions: [AiToolAction] = [.translate, .explain, .deepDive, .chat]
 
     var symbolName: String {
         switch self {
@@ -22,6 +24,10 @@ enum AiToolAction: String, CaseIterable, Identifiable {
             return "globe"
         case .explain:
             return "text.bubble"
+        case .deepDive:
+            return "brain.head.profile"
+        case .chat:
+            return "bubble.left.and.bubble.right"
         case .summarize:
             return "list.bullet.rectangle"
         case .polish:
@@ -41,6 +47,10 @@ enum AiToolAction: String, CaseIterable, Identifiable {
             return "翻译"
         case .explain:
             return "解释"
+        case .deepDive:
+            return "深度理解"
+        case .chat:
+            return "随便聊"
         case .summarize:
             return "总结"
         case .polish:
@@ -58,6 +68,10 @@ enum AiToolAction: String, CaseIterable, Identifiable {
             return "翻译结果"
         case .explain:
             return "解释结果"
+        case .deepDive:
+            return "深度理解"
+        case .chat:
+            return "回答"
         case .summarize:
             return "总结结果"
         case .polish:

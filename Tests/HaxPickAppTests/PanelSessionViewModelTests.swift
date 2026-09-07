@@ -4,11 +4,67 @@ import XCTest
 
 @MainActor
 final class PanelSessionViewModelTests: XCTestCase {
-    func testToolbarExposesOnlyMVPPrimaryActions() {
+    func testToolbarExposesPrimaryAIActions() {
         XCTAssertEqual(
             AiToolAction.primaryActions.map(\.rawValue),
-            [AiToolAction.translate.rawValue, AiToolAction.explain.rawValue]
+            [
+                AiToolAction.translate.rawValue,
+                AiToolAction.explain.rawValue,
+                AiToolAction.deepDive.rawValue,
+                AiToolAction.chat.rawValue,
+            ]
         )
+    }
+
+    func testFreeChatStartsWithoutSelectionAndAcceptsFirstQuestion() async throws {
+        let responder = DeferredPanelResponder()
+        let viewModel = makeViewModel(responder: responder)
+
+        viewModel.reset(with: "selected source")
+        viewModel.handlePrimaryAction(.chat)
+
+        XCTAssertEqual(viewModel.currentAction, .chat)
+        XCTAssertFalse(viewModel.showsSourceTurn)
+        XCTAssertEqual(viewModel.statusHint, "等待提问")
+        XCTAssertTrue(viewModel.conversationMessages.isEmpty)
+
+        viewModel.followUpInput = "今天想聊点别的"
+        XCTAssertTrue(viewModel.canSubmitFollowUp)
+        viewModel.submitFollowUp()
+        try await waitForPendingRequest(in: responder)
+
+        XCTAssertEqual(responder.requests.last?.map(\.role), [.system, .user])
+        XCTAssertEqual(responder.requests.last?.last?.content, "今天想聊点别的")
+
+        responder.succeed("当然可以。")
+        try await waitForCompletedAssistant(viewModel, content: "当然可以。")
+        XCTAssertEqual(viewModel.conversationMessages.map(\.content), ["今天想聊点别的", "当然可以。"])
+    }
+
+    func testPlusCancelsActiveRequestAndStartsFreshFreeChat() async throws {
+        let responder = DeferredPanelStreamResponder()
+        let session = AiAgentSession(
+            stream: { messages in responder.stream(messages) },
+            publishIntervalNanoseconds: 0
+        )
+        let viewModel = PanelSessionViewModel(aiSession: session, onClose: {})
+
+        viewModel.reset(with: "selection")
+        viewModel.handlePrimaryAction(.explain)
+        try await waitUntil { responder.hasPendingStream }
+
+        XCTAssertTrue(viewModel.isLoading)
+        XCTAssertTrue(viewModel.canStartNewConversation)
+        XCTAssertTrue(viewModel.showsSourceTurn)
+
+        viewModel.startNewConversation()
+
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertEqual(viewModel.currentAction, .chat)
+        XCTAssertTrue(viewModel.conversationMessages.isEmpty)
+        XCTAssertFalse(viewModel.showsSourceTurn)
+        XCTAssertEqual(viewModel.statusHint, "等待提问")
+        XCTAssertEqual(viewModel.followUpInput, "")
     }
 
     func testResetDiscardsLateResultFromPreviousSelection() async throws {
@@ -199,6 +255,7 @@ private enum TestError: Error {
 
 @MainActor
 private final class DeferredPanelResponder {
+    private(set) var requests: [[AiMessage]] = []
     private var continuations: [CheckedContinuation<String, Error>] = []
 
     var pendingCount: Int {
@@ -206,7 +263,8 @@ private final class DeferredPanelResponder {
     }
 
     func complete(_ messages: [AiMessage]) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
+        requests.append(messages)
+        return try await withCheckedThrowingContinuation { continuation in
             continuations.append(continuation)
         }
     }
