@@ -71,17 +71,22 @@ private struct AiReasoningDisclosure: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-
                     Image(systemName: "brain.head.profile")
                         .font(.system(size: 11, weight: .medium))
 
-                    Text(isStreaming ? "思考中…" : "思考过程")
+                    Text("思考过程")
                         .font(.system(size: 11.5, weight: .medium))
 
-                    Spacer(minLength: 0)
+                    if isStreaming {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .foregroundColor(AppTheme.textSecondary)
                 .contentShape(Rectangle())
@@ -102,15 +107,6 @@ private struct AiReasoningDisclosure: View {
                 .textSelection(.enabled)
                 .padding(.leading, 17)
                 .transition(.opacity.combined(with: .move(edge: .top)))
-            } else {
-                Text(text)
-                    .font(.system(size: 11.5))
-                    .foregroundColor(AppTheme.textSecondary.opacity(0.88))
-                    .lineSpacing(3)
-                    .lineLimit(4)
-                    .truncationMode(.tail)
-                    .textSelection(.enabled)
-                    .padding(.leading, 17)
             }
         }
         .padding(.horizontal, 11)
