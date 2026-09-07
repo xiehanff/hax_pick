@@ -3,10 +3,16 @@ import SwiftUI
 struct AiMessageBubble: View {
     let message: AiMessage
     let isStreaming: Bool
+    let assistantContentOpacity: Double
 
-    init(message: AiMessage, isStreaming: Bool = false) {
+    init(
+        message: AiMessage,
+        isStreaming: Bool = false,
+        assistantContentOpacity: Double = 1
+    ) {
         self.message = message
         self.isStreaming = isStreaming
+        self.assistantContentOpacity = assistantContentOpacity
     }
 
     @ViewBuilder
@@ -45,6 +51,7 @@ struct AiMessageBubble: View {
                             MarkdownWithCodeBlocks(text: message.content)
                         }
                     }
+                    .opacity(assistantContentOpacity)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else if isStreaming && message.reasoning.isEmpty {
                     ThinkingIndicator()
@@ -66,9 +73,7 @@ private struct AiReasoningDisclosure: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    isExpanded.toggle()
-                }
+                toggleExpanded()
             } label: {
                 HStack(spacing: 6) {
                     Text("思考过程")
@@ -85,7 +90,7 @@ private struct AiReasoningDisclosure: View {
                         .font(.system(size: 9, weight: .semibold))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
-                .foregroundColor(AppTheme.textSecondary)
+                .foregroundColor(AppTheme.textSecondary.opacity(0.82))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -100,9 +105,25 @@ private struct AiReasoningDisclosure: View {
                         MarkdownWithCodeBlocks(text: text)
                     }
                 }
-                .foregroundColor(AppTheme.textSecondary)
+                .opacity(0.72)
                 .textSelection(.enabled)
                 .transition(.opacity.combined(with: .move(edge: .top)))
+
+                Button {
+                    toggleExpanded()
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("收起思考过程")
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 8.5, weight: .semibold))
+                    }
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundColor(AppTheme.textSecondary.opacity(0.78))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 3)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 11)
@@ -112,6 +133,12 @@ private struct AiReasoningDisclosure: View {
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AppTheme.border.opacity(0.75), lineWidth: 0.75)
+        }
+    }
+
+    private func toggleExpanded() {
+        withAnimation(.easeInOut(duration: 0.16)) {
+            isExpanded.toggle()
         }
     }
 }
