@@ -1,14 +1,13 @@
 import AppKit
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var settingsWindowController: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureStatusItem()
-        Task { @MainActor in
-            AppState.shared.start()
-        }
+        AppState.shared.start()
     }
 
     private func configureStatusItem() {
@@ -42,8 +41,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        let controller = settingsWindowController ?? SettingsWindowController(appState: AppState.shared)
-        settingsWindowController = controller
+        let controller: SettingsWindowController
+        if let existing = settingsWindowController {
+            controller = existing
+        } else {
+            let created = SettingsWindowController(appState: AppState.shared)
+            settingsWindowController = created
+            controller = created
+        }
         NSApp.activate(ignoringOtherApps: true)
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
