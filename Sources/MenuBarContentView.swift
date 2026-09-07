@@ -11,6 +11,7 @@ final class SettingsWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
+        window.appearance = AppTheme.windowAppearance
         window.title = "HaxPick 设置"
         window.center()
         window.isReleasedWhenClosed = false
@@ -51,6 +52,7 @@ final class SettingsViewController: NSViewController {
 
     override func loadView() {
         view = NSView()
+        view.appearance = AppTheme.windowAppearance
         view.wantsLayer = true
         view.layer?.backgroundColor = AppTheme.background.cgColor
 
@@ -180,6 +182,7 @@ final class SettingsViewController: NSViewController {
     private func section(title: String, content: NSView) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        container.appearance = AppTheme.windowAppearance
         container.applyContinuousCornerRadius(12, background: AppTheme.cardBg)
         container.layer?.borderWidth = 0.75
         container.layer?.borderColor = AppTheme.border.cgColor
@@ -205,6 +208,10 @@ final class SettingsViewController: NSViewController {
     }
 
     private func configureControls() {
+        for control in [permissionButton, modelPopup, secureKeyField, plainKeyField, revealButton, saveButton] {
+            control.appearance = AppTheme.windowAppearance
+        }
+
         permissionButton.target = self
         permissionButton.action = #selector(permissionAction)
         permissionButton.bezelStyle = .rounded
