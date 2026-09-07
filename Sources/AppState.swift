@@ -1,6 +1,6 @@
 import AppKit
+import Combine
 import Security
-import SwiftUI
 
 protocol APIKeyStoring {
     func load() throws -> String?
@@ -327,9 +327,6 @@ final class AppState: ObservableObject {
                 }
             }
         } catch APIKeyStoreError.invalidStoredValue {
-            // The item was found, but its payload is deterministically unusable.
-            // Unlike a transient Keychain read error, it is safe to delete this
-            // known-bad item before considering legacy migration.
             do {
                 try store.delete()
             } catch {
@@ -339,10 +336,6 @@ final class AppState: ObservableObject {
                 )
             }
         } catch {
-            // A transient Keychain read error makes the authoritative credential unknown.
-            // The legacy value may be used for this launch, but must not be written
-            // back into Keychain because doing so could overwrite a newer key that
-            // merely failed to read transiently.
             return APIKeyLoadResult(
                 value: legacyValue,
                 storageState: .keychainUnavailable
@@ -359,8 +352,6 @@ final class AppState: ObservableObject {
             legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
             return APIKeyLoadResult(value: legacyValue, storageState: .keychain)
         } catch {
-            // Migration is best-effort. Keep the legacy value so a failed Keychain
-            // write does not silently erase the user's only persisted credential.
             return APIKeyLoadResult(
                 value: legacyValue,
                 storageState: .legacyMigrationPending

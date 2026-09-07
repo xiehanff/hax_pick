@@ -1,103 +1,184 @@
-import SwiftUI
+import AppKit
+import Combine
 
-struct AiChatInputBar: View {
-    @ObservedObject var viewModel: PanelSessionViewModel
+@MainActor
+final class AiChatInputBar: NSView, NSTextViewDelegate {
+    private let viewModel: PanelSessionViewModel
+    private var observation: AnyCancellable?
 
-    var body: some View {
-        VStack(spacing: 0) {
-            SoftDivider(horizontalInset: 12)
+    private let inputScrollView = NSScrollView()
+    private let inputTextView = NSTextView()
+    private let placeholderLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 13), color: AppTheme.textSecondary.withAlphaComponent(0.45))
+    private let newSessionButton = NSButton()
+    private let actionButton = NSButton()
 
-            VStack(alignment: .leading, spacing: 8) {
-                TextField(
-                    inputPlaceholder,
-                    text: $viewModel.followUpInput,
-                    axis: .vertical
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundColor(AppTheme.textPrimary)
-                .lineLimit(1...4)
-                .disabled(viewModel.isLoading)
-
-                HStack(spacing: 6) {
-                    Button {
-                        viewModel.startNewConversation()
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 11, weight: .semibold))
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(ComposerIconButtonStyle())
-                    .disabled(!viewModel.canStartNewConversation)
-                    .help("新建自由会话")
-                    .accessibilityLabel("新建自由会话")
-
-                    Spacer(minLength: 8)
-
-                    if viewModel.isLoading {
-                        Button {
-                            viewModel.stopGeneration()
-                        } label: {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 10, weight: .semibold))
-                                .frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(ComposerSendButtonStyle())
-                        .help("停止生成")
-                        .accessibilityLabel("停止生成")
-                    } else {
-                        Button {
-                            viewModel.submitFollowUp()
-                        } label: {
-                            HaxIcon(asset: .send)
-                                .frame(width: 14, height: 14)
-                                .frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(ComposerSendButtonStyle())
-                        .disabled(!viewModel.canSubmitFollowUp)
-                        .opacity(viewModel.canSubmitFollowUp ? 1 : 0.32)
-                        .help("发送")
-                        .accessibilityLabel("发送")
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
-            .background(Color.white.opacity(0.88))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(AppTheme.border, lineWidth: 0.75)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
+    init(viewModel: PanelSessionViewModel) {
+        self.viewModel = viewModel
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        buildUI()
+        observation = viewModel.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.refresh() }
         }
-        .background(Color.white.opacity(0.72))
+        refresh()
     }
 
-    private var inputPlaceholder: String {
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func buildUI() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.72).cgColor
+
+        let divider = SoftDividerView()
+        addSubview(divider)
+        NSLayoutConstraint.activate([
+            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            divider.topAnchor.constraint(equalTo: topAnchor),
+        ])
+
+        let card = NSView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.applyContinuousCornerRadius(12, background: NSColor.white.withAlphaComponent(0.88))
+        card.layer?.borderWidth = 0.75
+        card.layer?.borderColor = AppTheme.border.cgColor
+        addSubview(card)
+        NSLayoutConstraint.activate([
+            card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            card.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 9),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -9),
+        ])
+
+        inputScrollView.translatesAutoresizingMaskIntoConstraints = false
+        inputScrollView.drawsBackground = false
+        inputScrollView.borderType = .noBorder
+        inputScrollView.hasVerticalScroller = true
+        inputScrollView.autohidesScrollers = true
+
+        inputTextView.delegate = self
+        inputTextView.drawsBackground = false
+        inputTextView.font = .systemFont(ofSize: 13)
+        inputTextView.textColor = AppTheme.textPrimary
+        inputTextView.isRichText = false
+        inputTextView.isHorizontallyResizable = false
+        inputTextView.isVerticallyResizable = true
+        inputTextView.textContainerInset = NSSize(width: 0, height: 2)
+        inputTextView.textContainer?.lineFragmentPadding = 0
+        inputTextView.textContainer?.widthTracksTextView = true
+        inputTextView.textContainer?.containerSize = NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        inputScrollView.documentView = inputTextView
+
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        newSessionButton.translatesAutoresizingMaskIntoConstraints = false
+        newSessionButton.isBordered = false
+        newSessionButton.focusRingType = .none
+        newSessionButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "新建自由会话")
+        newSessionButton.imagePosition = .imageOnly
+        newSessionButton.contentTintColor = AppTheme.textSecondary
+        newSessionButton.target = self
+        newSessionButton.action = #selector(startNewSession)
+        newSessionButton.toolTip = "新建自由会话"
+        newSessionButton.wantsLayer = true
+        newSessionButton.layer?.backgroundColor = AppTheme.mutedBg.withAlphaComponent(0.48).cgColor
+        newSessionButton.layer?.cornerRadius = 8
+
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+        actionButton.isBordered = false
+        actionButton.focusRingType = .none
+        actionButton.imagePosition = .imageOnly
+        actionButton.contentTintColor = AppTheme.textPrimary
+        actionButton.target = self
+        actionButton.action = #selector(primaryAction)
+
+        card.addSubview(inputScrollView)
+        card.addSubview(placeholderLabel)
+        card.addSubview(newSessionButton)
+        card.addSubview(actionButton)
+
+        NSLayoutConstraint.activate([
+            inputScrollView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            inputScrollView.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            inputScrollView.topAnchor.constraint(equalTo: card.topAnchor, constant: 9),
+            inputScrollView.heightAnchor.constraint(equalToConstant: 42),
+
+            placeholderLabel.leadingAnchor.constraint(equalTo: inputScrollView.leadingAnchor),
+            placeholderLabel.topAnchor.constraint(equalTo: inputScrollView.topAnchor, constant: 3),
+
+            newSessionButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            newSessionButton.topAnchor.constraint(equalTo: inputScrollView.bottomAnchor, constant: 6),
+            newSessionButton.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
+            newSessionButton.widthAnchor.constraint(equalToConstant: 28),
+            newSessionButton.heightAnchor.constraint(equalToConstant: 28),
+
+            actionButton.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            actionButton.centerYAnchor.constraint(equalTo: newSessionButton.centerYAnchor),
+            actionButton.widthAnchor.constraint(equalToConstant: 28),
+            actionButton.heightAnchor.constraint(equalToConstant: 28),
+        ])
+    }
+
+    func textDidChange(_ notification: Notification) {
+        viewModel.followUpInput = inputTextView.string
+        refreshActionButton()
+        refreshPlaceholder()
+    }
+
+    private func refresh() {
+        if inputTextView.string != viewModel.followUpInput {
+            inputTextView.string = viewModel.followUpInput
+        }
+        inputTextView.isEditable = !viewModel.isLoading
+        inputTextView.isSelectable = true
+        newSessionButton.isEnabled = viewModel.canStartNewConversation
+        refreshPlaceholder()
+        refreshActionButton()
+    }
+
+    private func refreshPlaceholder() {
+        placeholderLabel.stringValue = viewModel.isLoading
+            ? "正在生成…"
+            : (viewModel.isFreeChat ? "想聊什么都可以…" : "继续提问…")
+        placeholderLabel.isHidden = !inputTextView.string.isEmpty
+    }
+
+    private func refreshActionButton() {
         if viewModel.isLoading {
-            return "正在生成…"
+            actionButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "停止生成")
+            actionButton.contentTintColor = AppTheme.textPrimary
+            actionButton.alphaValue = 1
+            actionButton.isEnabled = viewModel.canStop
+            actionButton.toolTip = "停止生成"
+        } else {
+            actionButton.image = HaxIconAsset.send.image
+            actionButton.contentTintColor = AppTheme.textPrimary
+            actionButton.isEnabled = viewModel.canSubmitFollowUp
+            actionButton.alphaValue = viewModel.canSubmitFollowUp ? 1 : 0.32
+            actionButton.toolTip = "发送"
         }
-        return viewModel.isFreeChat ? "想聊什么都可以…" : "继续提问…"
     }
-}
 
-private struct ComposerIconButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundColor(AppTheme.textSecondary)
-            .background(AppTheme.mutedBg.opacity(configuration.isPressed ? 0.72 : 0.46))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    @objc private func startNewSession() {
+        viewModel.startNewConversation()
+        inputTextView.string = ""
+        viewModel.followUpInput = ""
+        refresh()
+        window?.makeFirstResponder(inputTextView)
     }
-}
 
-private struct ComposerSendButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundColor(AppTheme.textPrimary)
-            .contentShape(Rectangle())
-            .opacity(configuration.isPressed ? 0.5 : 1)
+    @objc private func primaryAction() {
+        if viewModel.isLoading {
+            viewModel.stopGeneration()
+        } else {
+            viewModel.submitFollowUp()
+            inputTextView.string = viewModel.followUpInput
+        }
+        refresh()
     }
 }

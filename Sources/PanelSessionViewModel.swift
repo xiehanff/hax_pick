@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import SwiftUI
 
 @MainActor
 final class PanelSessionViewModel: ObservableObject {
@@ -74,7 +73,6 @@ final class PanelSessionViewModel: ObservableObject {
             !followUpInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// 结果面板出现后始终允许新建自由会话；即使正在生成，也会先停止当前请求。
     var canStartNewConversation: Bool {
         currentAction != nil
     }
@@ -122,7 +120,6 @@ final class PanelSessionViewModel: ObservableObject {
         aiSession.stopGeneration()
     }
 
-    /// `+` 始终创建一个全新的自由问答 session；若当前仍在生成，会先取消当前请求。
     func startNewConversation() {
         guard !isDismissed else { return }
         resetStreamingPresentationState()
@@ -146,15 +143,12 @@ final class PanelSessionViewModel: ObservableObject {
         _ = aiSession.sendMessage(suggestion)
     }
 
-    /// 用户离开最新位置阅读历史时，只暂停昂贵的 SwiftUI 发布。
-    /// SSE 与 AiAgentSession 仍继续完整累计内容。
     func pauseStreamingPresentation() {
         guard aiSession.isLoading, !isStreamingPresentationPaused else { return }
         isStreamingPresentationPaused = true
         hasDeferredAgentUpdate = false
     }
 
-    /// 回到最新位置时一次性把累计到现在的 draft 刷给 UI，再恢复正常流式刷新。
     func resumeStreamingPresentation() {
         guard isStreamingPresentationPaused else { return }
         isStreamingPresentationPaused = false
@@ -205,8 +199,6 @@ final class PanelSessionViewModel: ObservableObject {
             self.objectWillChange.send()
         }
 
-        // objectWillChange 在属性真正变化前触发，因此额外观察 isLoading 的
-        // post-change publisher，确保用户一直停留在历史位置时，最终完成态仍刷新一次。
         loadingObservation = aiSession.$isLoading
             .removeDuplicates()
             .sink { [weak self] isLoading in

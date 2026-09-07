@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 @MainActor
 final class ToolbarPanelController: NSObject, NSWindowDelegate {
@@ -8,39 +7,47 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
     var onDismissSelection: ((String) -> Void)?
     private var panel: HaxPickPanel?
     private var sessionViewModel: PanelSessionViewModel?
+    private var rootView: FloatingToolbarView?
+    private var currentAnchorPoint: NSPoint = .zero
     private var localKeyMonitor: Any?
     private var globalKeyMonitor: Any?
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
 
     func show(text: String, at screenPoint: NSPoint, service: DeepSeekService) {
-        let viewModel = sessionViewModel ?? PanelSessionViewModel(service: service) { [weak self] in
-            self?.dismissPanel()
-        }
-        viewModel.onModeChanged = { [weak self] mode in
-            guard let self else { return }
-            if let panel = self.panel {
-                let size = self.panelSize(for: mode, at: screenPoint)
-                panel.setContentSize(size)
-                panel.contentView = AppTheme.makeHostingView(
-                    rootView: FloatingToolbarView(viewModel: viewModel),
-                    size: size
-                )
-                panel.setFrameOrigin(self.clampedOrigin(for: screenPoint, mode: mode))
-                panel.hidesOnDeactivate = false
-                panel.isMovableByWindowBackground = mode == .toolbar
-                self.present(panel: panel, for: mode)
+        currentAnchorPoint = screenPoint
+
+        let viewModel: PanelSessionViewModel
+        if let existing = sessionViewModel {
+            viewModel = existing
+        } else {
+            let created = PanelSessionViewModel(service: service) { [weak self] in
+                self?.dismissPanel()
             }
+            created.onModeChanged = { [weak self] mode in
+                self?.modeDidChange(mode)
+            }
+            sessionViewModel = created
+            viewModel = created
         }
+
+        if rootView == nil {
+            rootView = FloatingToolbarView(viewModel: viewModel)
+        }
+
         viewModel.reset(with: text)
-        sessionViewModel = viewModel
+
         let panel = panel ?? buildPanel()
         let size = panelSize(for: viewModel.mode, at: screenPoint)
         panel.setContentSize(size)
-        panel.contentView = AppTheme.makeHostingView(
-            rootView: FloatingToolbarView(viewModel: viewModel),
-            size: size
-        )
+        if let rootView {
+            rootView.frame = NSRect(origin: .zero, size: size)
+            rootView.autoresizingMask = [.width, .height]
+            rootView.refreshModeIfNeeded(force: true)
+            if panel.contentView !== rootView {
+                panel.contentView = rootView
+            }
+        }
         panel.setFrameOrigin(clampedOrigin(for: screenPoint, mode: viewModel.mode))
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = viewModel.mode == .toolbar
@@ -48,6 +55,18 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         self.panel = panel
         installKeyMonitorIfNeeded()
         installMouseMonitorIfNeeded()
+    }
+
+    private func modeDidChange(_ mode: PanelSessionViewModel.PanelMode) {
+        guard let panel else { return }
+        let size = panelSize(for: mode, at: currentAnchorPoint)
+        panel.setContentSize(size)
+        rootView?.frame = NSRect(origin: .zero, size: size)
+        rootView?.refreshModeIfNeeded(force: true)
+        panel.setFrameOrigin(clampedOrigin(for: currentAnchorPoint, mode: mode))
+        panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = mode == .toolbar
+        present(panel: panel, for: mode)
     }
 
     private func buildPanel() -> HaxPickPanel {
@@ -146,7 +165,6 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
     private func present(panel: HaxPickPanel, for mode: PanelSessionViewModel.PanelMode) {
         switch mode {
         case .toolbar:
-            // 提前展示不能截获原应用正在进行的划词手势。
             panel.ignoresMouseEvents = NSEvent.pressedMouseButtons & 1 != 0
             panel.orderFrontRegardless()
         case .result:
@@ -157,9 +175,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
     }
 
     private func installMouseMonitorIfNeeded() {
-        guard globalMouseMonitor == nil else {
-            return
-        }
+        guard globalMouseMonitor == nil else { return }
 
         let handler: (NSEvent) -> Void = { [weak self] event in
             self?.handleMouseEvent(event)
@@ -185,7 +201,6 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
             panel.ignoresMouseEvents = false
             return
         }
-        let location = event.locationInWindow
 
         if event.window == panel {
             return
@@ -193,7 +208,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
 
         let screenLocation: NSPoint
         if let window = event.window {
-            screenLocation = window.convertPoint(toScreen: location)
+            screenLocation = window.convertPoint(toScreen: event.locationInWindow)
         } else {
             screenLocation = NSEvent.mouseLocation
         }

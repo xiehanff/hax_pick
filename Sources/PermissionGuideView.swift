@@ -1,107 +1,202 @@
-import SwiftUI
+import AppKit
+import Combine
 
-struct PermissionGuideView: View {
-    @ObservedObject var appState: AppState
-    let onClose: () -> Void
+@MainActor
+final class PermissionGuideViewController: NSViewController {
+    private let appState: AppState
+    private let onClose: () -> Void
+    private var observation: AnyCancellable?
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
-            steps
-            actions
-        }
-        .padding(24)
-        .frame(width: 480, height: 420)
-        .background(AppTheme.background)
-        .environment(\.colorScheme, .light)
+    private let subtitle = NSTextField.haxLabel("", font: .systemFont(ofSize: 12), color: AppTheme.textSecondary)
+    private let statusDot = NSView()
+
+    init(appState: AppState, onClose: @escaping () -> Void) {
+        self.appState = appState
+        self.onClose = onClose
+        super.init(nibName: nil, bundle: nil)
     }
 
-    // MARK: 头部
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            AppBrandIcon(size: 40)
+    override func loadView() {
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 420))
+        view.wantsLayer = true
+        view.layer?.backgroundColor = AppTheme.background.cgColor
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("HaxPick 权限引导")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(AppTheme.textPrimary)
-                Text(appState.permissionGranted ? "已授权，可以开始使用" : "需要辅助功能权限才能监听划词")
-                    .font(.system(size: 12))
-                    .foregroundColor(AppTheme.textSecondary)
-            }
+        let root = NSStackView()
+        root.orientation = .vertical
+        root.alignment = .leading
+        root.spacing = 18
+        root.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(root)
+        NSLayoutConstraint.activate([
+            root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            root.topAnchor.constraint(equalTo: view.topAnchor, constant: 24),
+            root.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -24),
+        ])
 
-            Spacer()
-
-            Circle()
-                .fill(appState.permissionGranted ? AppTheme.success : Color.orange)
-                .frame(width: 10, height: 10)
+        root.addArrangedSubview(makeHeader())
+        root.addArrangedSubview(makeSteps())
+        root.addArrangedSubview(makeActions())
+        for child in root.arrangedSubviews {
+            child.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         }
     }
 
-    // MARK: 步骤
-
-    private var steps: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            stepItem(num: "1", title: "打开辅助功能页面", desc: "点击下方按钮，跳转到系统设置对应位置")
-            Divider().padding(.leading, 36)
-            stepItem(num: "2", title: "将 HaxPick 加入授权列表", desc: "在列表中勾选 HaxPick，允许读取选中文本")
-            Divider().padding(.leading, 36)
-            stepItem(num: "3", title: "回到这里刷新状态", desc: "授权后点击刷新，窗口会自动关闭")
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        observation = appState.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.refresh() }
         }
-        .padding(16)
-        .background(AppTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(AppTheme.border, lineWidth: 1)
+        refresh()
+    }
+
+    private func makeHeader() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        row.addArrangedSubview(AppBrandIconView(size: 40))
+
+        let textStack = NSStackView()
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 2
+        textStack.addArrangedSubview(
+            NSTextField.haxLabel("HaxPick 权限引导", font: .systemFont(ofSize: 16, weight: .bold))
         )
+        textStack.addArrangedSubview(subtitle)
+        row.addArrangedSubview(textStack)
+        row.addArrangedSubview(NSView())
+
+        statusDot.translatesAutoresizingMaskIntoConstraints = false
+        statusDot.wantsLayer = true
+        statusDot.applyContinuousCornerRadius(5)
+        statusDot.widthAnchor.constraint(equalToConstant: 10).isActive = true
+        statusDot.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        row.addArrangedSubview(statusDot)
+        return row
     }
 
-    private func stepItem(num: String, title: String, desc: String) -> some View {
-        HStack(spacing: 14) {
-            Text(num)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(.white)
-                .frame(width: 22, height: 22)
-                .background(AppTheme.accent)
-                .clipShape(Circle())
+    private func makeSteps() -> NSView {
+        let card = NSView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.applyContinuousCornerRadius(12, background: AppTheme.cardBg)
+        card.layer?.borderWidth = 0.75
+        card.layer?.borderColor = AppTheme.border.cgColor
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(AppTheme.textPrimary)
-                Text(desc)
-                    .font(.system(size: 11))
-                    .foregroundColor(AppTheme.textSecondary)
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
+        ])
+
+        let rows = [
+            ("1", "打开辅助功能页面", "点击下方按钮，跳转到系统设置对应位置"),
+            ("2", "将 HaxPick 加入授权列表", "在列表中勾选 HaxPick，允许读取选中文本"),
+            ("3", "回到这里刷新状态", "授权后点击刷新，窗口会自动关闭"),
+        ]
+        for (index, item) in rows.enumerated() {
+            let row = makeStep(number: item.0, title: item.1, detail: item.2)
+            stack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            if index < rows.count - 1 {
+                let dividerContainer = NSView()
+                dividerContainer.translatesAutoresizingMaskIntoConstraints = false
+                let divider = SoftDividerView()
+                dividerContainer.addSubview(divider)
+                NSLayoutConstraint.activate([
+                    divider.leadingAnchor.constraint(equalTo: dividerContainer.leadingAnchor, constant: 36),
+                    divider.trailingAnchor.constraint(equalTo: dividerContainer.trailingAnchor),
+                    divider.centerYAnchor.constraint(equalTo: dividerContainer.centerYAnchor),
+                    dividerContainer.heightAnchor.constraint(equalToConstant: 1),
+                ])
+                stack.addArrangedSubview(dividerContainer)
+                dividerContainer.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
             }
         }
-        .padding(.vertical, 10)
+        return card
     }
 
-    // MARK: 操作
+    private func makeStep(number: String, title: String, detail: String) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 14
+        row.edgeInsets = NSEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
 
-    private var actions: some View {
-        HStack(spacing: 8) {
-            Button("打开辅助功能设置") {
-                appState.openAccessibilitySettings()
-            }
-            .buttonStyle(PrimaryButtonStyle())
+        let badge = NSTextField(labelWithString: number)
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.alignment = .center
+        badge.font = .systemFont(ofSize: 13, weight: .bold)
+        badge.textColor = .white
+        badge.wantsLayer = true
+        badge.layer?.backgroundColor = AppTheme.accent.cgColor
+        badge.layer?.cornerRadius = 11
+        badge.widthAnchor.constraint(equalToConstant: 22).isActive = true
+        badge.heightAnchor.constraint(equalToConstant: 22).isActive = true
 
-            Button("刷新状态") {
-                appState.refreshPermissionStatus()
-                if appState.permissionGranted {
-                    onClose()
-                }
-            }
-            .buttonStyle(SecondaryButtonStyle())
+        let text = NSStackView()
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 2
+        text.addArrangedSubview(NSTextField.haxLabel(title, font: .systemFont(ofSize: 13, weight: .semibold)))
+        text.addArrangedSubview(NSTextField.haxLabel(detail, font: .systemFont(ofSize: 11), color: AppTheme.textSecondary))
+        row.addArrangedSubview(badge)
+        row.addArrangedSubview(text)
+        return row
+    }
 
-            Spacer()
+    private func makeActions() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
 
-            Button("稍后再说") {
-                onClose()
-            }
-            .buttonStyle(SecondaryButtonStyle())
+        let open = NSButton(title: "打开辅助功能设置", target: self, action: #selector(openSettings))
+        open.bezelStyle = .rounded
+        open.keyEquivalent = "\r"
+        let refresh = NSButton(title: "刷新状态", target: self, action: #selector(refreshPermission))
+        refresh.bezelStyle = .rounded
+        let later = NSButton(title: "稍后再说", target: self, action: #selector(closeGuide))
+        later.bezelStyle = .rounded
+
+        row.addArrangedSubview(open)
+        row.addArrangedSubview(refresh)
+        row.addArrangedSubview(NSView())
+        row.addArrangedSubview(later)
+        return row
+    }
+
+    private func refresh() {
+        subtitle.stringValue = appState.permissionGranted ? "已授权，可以开始使用" : "需要辅助功能权限才能监听划词"
+        statusDot.layer?.backgroundColor = (appState.permissionGranted ? AppTheme.success : NSColor.systemOrange).cgColor
+    }
+
+    @objc private func openSettings() {
+        appState.openAccessibilitySettings()
+    }
+
+    @objc private func refreshPermission() {
+        appState.refreshPermissionStatus()
+        if appState.permissionGranted {
+            onClose()
         }
+    }
+
+    @objc private func closeGuide() {
+        onClose()
     }
 }
