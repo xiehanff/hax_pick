@@ -1,261 +1,180 @@
-import SwiftUI
+import AppKit
 
-/// 将 AI 回复文本按 ``` 分割，代码块以暗色卡片 + 高亮渲染，Markdown 段按段落排布
-struct MarkdownWithCodeBlocks: View {
-    let text: String
-
+/// AppKit-native Markdown/code renderer used by completed assistant messages.
+/// Streaming paths intentionally use a lightweight plain text view elsewhere.
+final class MarkdownWithCodeBlocksView: NSView {
     private enum Segment {
         case markdown(String)
         case code(String)
     }
 
-    var body: some View {
-        let segments = parseSegments(from: text)
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(segments.indices, id: \.self) { i in
-                switch segments[i] {
-                case .markdown(let content):
-                    markdownParagraphsView(content)
-                case .code(let rawCode):
-                    codeBlockView(rawCode)
-                }
-            }
-        }
-        .textSelection(.enabled)
-    }
+    private let stack = NSStackView()
 
-    // MARK: - 段落排布
+    init(text: String, textColor: NSColor = AppTheme.textPrimary, fontSize: CGFloat = 13) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        stack.pinEdges(to: self)
 
-    /// 按句号/问号/感叹号后跟换行或空格拆分段落，拆分点前后不出现空段
-    @ViewBuilder
-    private func markdownParagraphsView(_ content: String) -> some View {
-        let paragraphs = splitBySentenceEnd(content)
-        if paragraphs.isEmpty {
-            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                renderParagraph(trimmed)
+        for segment in parseSegments(from: text) {
+            let child: NSView
+            switch segment {
+            case .markdown(let markdown):
+                child = makeMarkdownText(markdown, textColor: textColor, fontSize: fontSize)
+            case .code(let code):
+                child = CodeBlockView(code: code)
             }
-        } else {
-            ForEach(paragraphs.indices, id: \.self) { i in
-                renderParagraph(paragraphs[i])
-                if i < paragraphs.count - 1 {
-                    Spacer().frame(height: 10)
-                }
-            }
+            stack.addArrangedSubview(child)
+            child.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
     }
 
-    /// 在 。！？!?. 后跟换行符或一个以上空格处分段；不适用的句子保留原样
-    private func splitBySentenceEnd(_ text: String) -> [String] {
-        let pattern = try? NSRegularExpression(pattern: "[。！？!?.][\\n\\s]+")
-        let range = NSRange(text.startIndex..., in: text)
-        guard let matches = pattern?.matches(in: text, range: range), !matches.isEmpty else {
-            return []
-        }
-
-        var result: [String] = []
-        var prev = text.startIndex
-        for match in matches {
-            guard let matchRange = Range(match.range, in: text) else { continue }
-            // 段落包括句末标点，不包括后续空白/换行
-            let endOfSentence = text.index(matchRange.lowerBound, offsetBy: 1)
-            let paragraph = String(text[prev..<endOfSentence]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !paragraph.isEmpty {
-                result.append(paragraph)
-            }
-            prev = matchRange.upperBound
-        }
-        let tail = String(text[prev...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tail.isEmpty {
-            result.append(tail)
-        }
-        return result
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
-
-    @ViewBuilder
-    private func renderParagraph(_ text: String) -> some View {
-        if let md = try? AttributedString(markdown: text) {
-            Text(md)
-                .font(.system(size: 13))
-                .foregroundColor(AppTheme.textPrimary)
-                .lineSpacing(4)
-        } else {
-            Text(text)
-                .font(.system(size: 13))
-                .foregroundColor(AppTheme.textPrimary)
-                .lineSpacing(4)
-        }
-    }
-
-    // MARK: - 代码块解析
 
     private func parseSegments(from text: String) -> [Segment] {
-        var segments: [Segment] = []
         let parts = text.components(separatedBy: "```")
-        for (i, part) in parts.enumerated() {
-            if i % 2 == 0 {
-                segments.append(.markdown(part))
+        var segments: [Segment] = []
+        for (index, part) in parts.enumerated() {
+            if index.isMultiple(of: 2) {
+                let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    segments.append(.markdown(trimmed))
+                }
             } else {
-                var lines = part.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-                let codeBody = lines.count > 1 ? String(lines[1]) : ""
-                if !codeBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    segments.append(.code(codeBody))
+                let pieces = part.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+                let code = pieces.count > 1 ? String(pieces[1]) : String(part)
+                if !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    segments.append(.code(code))
                 }
             }
         }
         return segments
     }
 
-    // MARK: - 代码块（带高亮）
+    private func makeMarkdownText(_ text: String, textColor: NSColor, fontSize: CGFloat) -> NSView {
+        let textView = AutoHeightTextView()
+        textView.font = .systemFont(ofSize: fontSize)
+        textView.textColor = textColor
+        textView.defaultParagraphStyle = Self.paragraphStyle(lineSpacing: 4)
 
-    @ViewBuilder
-    private func codeBlockView(_ code: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            Text(highlightedCode(code))
-                .font(.system(size: 12, design: .monospaced))
-                .lineSpacing(3)
+        if let attributed = try? AttributedString(markdown: text) {
+            let rendered = NSMutableAttributedString(attributedString: NSAttributedString(attributed))
+            let fullRange = NSRange(location: 0, length: rendered.length)
+            rendered.addAttribute(.foregroundColor, value: textColor, range: fullRange)
+            rendered.addAttribute(.paragraphStyle, value: Self.paragraphStyle(lineSpacing: 4), range: fullRange)
+            textView.textStorage?.setAttributedString(rendered)
+        } else {
+            textView.string = text
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: 0x1E1E2E))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(hex: 0x333348), lineWidth: 1)
+        return textView
+    }
+
+    private static func paragraphStyle(lineSpacing: CGFloat) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing
+        style.paragraphSpacing = 8
+        return style
+    }
+}
+
+final class AutoHeightTextView: NSTextView {
+    var defaultParagraphStyle: NSParagraphStyle? {
+        didSet {
+            typingAttributes[.paragraphStyle] = defaultParagraphStyle
+        }
+    }
+
+    init() {
+        let storage = NSTextStorage()
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: 0, height: .greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        super.init(frame: .zero, textContainer: container)
+        translatesAutoresizingMaskIntoConstraints = false
+        isEditable = false
+        isSelectable = true
+        drawsBackground = false
+        isRichText = true
+        isHorizontallyResizable = false
+        isVerticallyResizable = true
+        textContainerInset = .zero
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        guard let textContainer, let layoutManager else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: 20)
+        }
+        let availableWidth = max(bounds.width, 1)
+        textContainer.containerSize = NSSize(width: availableWidth, height: .greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        return NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: max(18, ceil(used.height + textContainerInset.height * 2))
         )
     }
 
-    // MARK: - 简易语法高亮
-
-    private func highlightedCode(_ source: String) -> AttributedString {
-        var result = AttributedString()
-        let lines = source.components(separatedBy: .newlines)
-
-        for (lineIndex, line) in lines.enumerated() {
-            let highlighted = highlightLine(line)
-            result.append(highlighted)
-            if lineIndex < lines.count - 1 {
-                result.append(AttributedString("\n"))
-            }
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = abs(frame.width - newSize.width) > 0.5
+        super.setFrameSize(newSize)
+        if widthChanged {
+            invalidateIntrinsicContentSize()
         }
-        return result
+    }
+}
+
+private final class CodeBlockView: NSView {
+    init(code: String) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        applyContinuousCornerRadius(8, background: NSColor(hex: 0x1E1E2E))
+        layer?.borderWidth = 0.75
+        layer?.borderColor = NSColor(hex: 0x333348).cgColor
+
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.drawsBackground = false
+        scroll.hasHorizontalScroller = true
+        scroll.hasVerticalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+
+        let text = NSTextView()
+        text.isEditable = false
+        text.isSelectable = true
+        text.drawsBackground = false
+        text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        text.textColor = NSColor(hex: 0xE0E0E0)
+        text.string = code
+        text.textContainerInset = NSSize(width: 10, height: 9)
+        text.isHorizontallyResizable = true
+        text.isVerticallyResizable = false
+        text.textContainer?.widthTracksTextView = false
+        text.textContainer?.containerSize = NSSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        scroll.documentView = text
+
+        addSubview(scroll)
+        scroll.pinEdges(to: self)
+        let lineCount = max(1, code.components(separatedBy: .newlines).count)
+        heightAnchor.constraint(equalToConstant: min(240, max(42, CGFloat(lineCount) * 18 + 20))).isActive = true
     }
 
-    private func highlightLine(_ line: String) -> AttributedString {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-        // 全文注释行
-        if trimmed.hasPrefix("//") {
-            var attr = AttributedString(line)
-            attr.foregroundColor = Color(hex: 0x6A9955)
-            attr.font = .system(size: 12, design: .monospaced)
-            return attr
-        }
-
-        // 扫描 token
-        var result = AttributedString()
-        var i = line.startIndex
-
-        while i < line.endIndex {
-            let remaining = line[i...]
-
-            // 字符串字面量
-            if remaining.hasPrefix("\"") {
-                let (token, end) = scanStringLiteral(from: line, start: i)
-                var attr = AttributedString(String(token))
-                attr.foregroundColor = Color(hex: 0xCE9178)
-                attr.font = .system(size: 12, design: .monospaced)
-                result.append(attr)
-                i = end
-                continue
-            }
-
-            // 行注释
-            if remaining.hasPrefix("//") {
-                var attr = AttributedString(String(line[i...]))
-                attr.foregroundColor = Color(hex: 0x6A9955)
-                attr.font = .system(size: 12, design: .monospaced)
-                result.append(attr)
-                return result
-            }
-
-            // 数字
-            if remaining.first?.isNumber == true {
-                let token = scanWhile(in: line, from: i) { $0.isNumber || $0 == "." }
-                var attr = AttributedString(String(token))
-                attr.foregroundColor = Color(hex: 0xB5CEA8)
-                attr.font = .system(size: 12, design: .monospaced)
-                result.append(attr)
-                i = line.index(i, offsetBy: token.count)
-                continue
-            }
-
-            // 标识符 / 关键字
-            if remaining.first?.isLetter == true || remaining.first == "_" {
-                let token = scanWhile(in: line, from: i) { $0.isLetter || $0.isNumber || $0 == "_" }
-                var attr = AttributedString(String(token))
-                if isKeyword(String(token)) {
-                    attr.foregroundColor = Color(hex: 0xC586C0)
-                } else {
-                    attr.foregroundColor = Color(hex: 0xE0E0E0)
-                }
-                attr.font = .system(size: 12, design: .monospaced)
-                result.append(attr)
-                i = line.index(i, offsetBy: token.count)
-                continue
-            }
-
-            // 其他字符直接附上
-            var attr = AttributedString(String(remaining.first!))
-            attr.foregroundColor = Color(hex: 0xE0E0E0)
-            attr.font = .system(size: 12, design: .monospaced)
-            result.append(attr)
-            i = line.index(after: i)
-        }
-
-        return result
-    }
-
-    private func scanStringLiteral(from line: String, start: String.Index) -> (Substring, String.Index) {
-        var i = line.index(after: start) // skip opening "
-        while i < line.endIndex {
-            if line[i] == "\\" {
-                i = line.index(after: i) // skip escaped char
-                if i < line.endIndex { i = line.index(after: i) }
-                continue
-            }
-            if line[i] == "\"" {
-                i = line.index(after: i) // skip closing "
-                return (line[start..<i], i)
-            }
-            i = line.index(after: i)
-        }
-        // 未闭合的字符串，取到行尾
-        return (line[start..<line.endIndex], line.endIndex)
-    }
-
-    private func scanWhile(in line: String, from start: String.Index, predicate: (Character) -> Bool) -> Substring {
-        var i = start
-        while i < line.endIndex, predicate(line[i]) {
-            i = line.index(after: i)
-        }
-        return line[start..<i]
-    }
-
-    private func isKeyword(_ word: String) -> Bool {
-        switch word {
-        case "func", "var", "let", "if", "else", "for", "while", "return",
-             "class", "struct", "enum", "import", "guard", "case", "switch",
-             "break", "continue", "try", "catch", "throw", "throws", "async",
-             "await", "static", "public", "private", "internal", "extension",
-             "protocol", "true", "false", "nil", "self", "Self", "in", "where",
-             "is", "as", "associatedtype", "init", "deinit", "mutating",
-             "nonmutating", "override", "final", "open", "weak", "unowned",
-             "lazy", "convenience", "required", "optional", "typealias",
-             "get", "set", "willSet", "didSet":
-            return true
-        default:
-            return false
-        }
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
