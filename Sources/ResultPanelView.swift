@@ -87,6 +87,11 @@ final class ResultPanelView: NSView {
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        // Rubber-band overscroll changes NSClipView.bounds beyond 0/max. During
+        // streaming that used to fight follow-tail correction and caused the
+        // entire conversation to flash at the top/bottom boundary.
+        scrollView.verticalScrollElasticity = .none
+        scrollView.horizontalScrollElasticity = .none
         scrollView.documentView = documentView
 
         returnToLatestButton.translatesAutoresizingMaskIntoConstraints = false
@@ -185,9 +190,16 @@ final class ResultPanelView: NSView {
         }
 
         refreshHeader()
-        syncConversationRows()
+        let structureChanged = syncConversationRows()
         updateReturnToLatestVisibility()
-        scheduleDocumentLayout()
+
+        // Text snapshots now render through the persistent Markdown view. Its
+        // async parse callback schedules layout only when the actual attributed
+        // geometry changes; a normal 40ms token notification no longer forces a
+        // redundant document pass.
+        if structureChanged {
+            scheduleDocumentLayout()
+        }
     }
 
     private func refreshHeader() {
@@ -209,7 +221,8 @@ final class ResultPanelView: NSView {
         statusDot.layer?.backgroundColor = color.cgColor
     }
 
-    private func syncConversationRows() {
+    @discardableResult
+    private func syncConversationRows() -> Bool {
         let messages = viewModel.conversationMessages
         let visibleMessages = messages.filter { $0.role != .system }
         let validIDs = Set(visibleMessages.map(\.id))
@@ -256,7 +269,7 @@ final class ResultPanelView: NSView {
             structure.append("actions:\(viewModel.canRetry):\(viewModel.lastAssistantContent != nil)")
         }
 
-        guard structure != currentStructure else { return }
+        guard structure != currentStructure else { return false }
         currentStructure = structure
 
         var desiredViews: [NSView] = []
@@ -283,6 +296,7 @@ final class ResultPanelView: NSView {
             desiredViews.append(AssistantActionsView(viewModel: viewModel))
         }
         documentView.setRows(desiredViews)
+        return true
     }
 
     private func messageLayoutDidChange() {
@@ -315,10 +329,12 @@ final class ResultPanelView: NSView {
         if preserveUserOffset {
             let maxY = maxOffsetY
             let clamped = min(max(0, oldOrigin.y), maxY)
-            isProgrammaticScroll = true
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: clamped))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-            isProgrammaticScroll = false
+            if abs(scrollView.contentView.bounds.origin.y - clamped) > 0.5 {
+                isProgrammaticScroll = true
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: clamped))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                isProgrammaticScroll = false
+            }
             lastObservedOffsetY = clamped
         }
         isUpdatingDocumentLayout = false
@@ -329,14 +345,19 @@ final class ResultPanelView: NSView {
     }
 
     private func clipBoundsDidChange() {
-        let newY = scrollView.contentView.bounds.origin.y
+        let rawY = scrollView.contentView.bounds.origin.y
+        let maxY = maxOffsetY
+        let newY = min(max(0, rawY), maxY)
         let oldY = lastObservedOffsetY
         lastObservedOffsetY = newY
-        guard !isProgrammaticScroll, !isUpdatingDocumentLayout, abs(newY - oldY) > 0.5 else {
+
+        guard !isProgrammaticScroll,
+              !isUpdatingDocumentLayout,
+              abs(newY - oldY) > 0.5 else {
             return
         }
 
-        let extentAfter = max(0, maxOffsetY - newY)
+        let extentAfter = max(0, maxY - newY)
         switch followTailState.userScrollPositionDidChange(extentAfter: extentAfter) {
         case .paused:
             viewModel.pauseStreamingPresentation()
@@ -352,10 +373,14 @@ final class ResultPanelView: NSView {
     private func scrollToBottom() {
         guard followTailState.isFollowingTail else { return }
         let y = maxOffsetY
-        isProgrammaticScroll = true
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-        isProgrammaticScroll = false
+        let currentY = min(max(0, scrollView.contentView.bounds.origin.y), y)
+
+        if abs(currentY - y) > 0.5 {
+            isProgrammaticScroll = true
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            isProgrammaticScroll = false
+        }
         lastObservedOffsetY = y
         updateReturnToLatestVisibility()
     }
@@ -385,8 +410,6 @@ enum ChatFollowTailTransition: Equatable {
 struct ChatFollowTailState: Equatable {
     private(set) var isFollowingTail = true
 
-    /// A small geometry tolerance prevents tiny AppKit rounding differences from
-    /// flipping follow-tail off while the viewport is visually at the bottom.
     static let tailTolerance: CGFloat = 32
 
     mutating func requestDidStart() {
