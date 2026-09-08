@@ -336,17 +336,15 @@ final class ResultPanelView: NSView {
             return
         }
 
-        followTailState.userDidScroll()
-        viewModel.pauseStreamingPresentation()
-
-        let movingTowardTail = newY > oldY
         let extentAfter = max(0, maxOffsetY - newY)
-        if followTailState.tailPositionDidChange(
-            extentAfter: extentAfter,
-            movingTowardTail: movingTowardTail
-        ) {
+        switch followTailState.userScrollPositionDidChange(extentAfter: extentAfter) {
+        case .paused:
+            viewModel.pauseStreamingPresentation()
+        case .resumed:
             viewModel.resumeStreamingPresentation()
             scheduleDocumentLayout()
+        case .none:
+            break
         }
         updateReturnToLatestVisibility()
     }
@@ -369,7 +367,8 @@ final class ResultPanelView: NSView {
     @objc private func returnToLatest() {
         followTailState.resume()
         viewModel.resumeStreamingPresentation()
-        render()
+        scheduleDocumentLayout()
+        updateReturnToLatestVisibility()
     }
 
     @objc private func closePanel() {
@@ -377,14 +376,18 @@ final class ResultPanelView: NSView {
     }
 }
 
+enum ChatFollowTailTransition: Equatable {
+    case none
+    case paused
+    case resumed
+}
+
 struct ChatFollowTailState: Equatable {
     private(set) var isFollowingTail = true
-    static let resumeThreshold: CGFloat = 80
 
-    mutating func userDidScroll() {
-        guard isFollowingTail else { return }
-        isFollowingTail = false
-    }
+    /// A small geometry tolerance prevents tiny AppKit rounding differences from
+    /// flipping follow-tail off while the viewport is visually at the bottom.
+    static let tailTolerance: CGFloat = 32
 
     mutating func requestDidStart() {
         isFollowingTail = true
@@ -395,18 +398,19 @@ struct ChatFollowTailState: Equatable {
     }
 
     @discardableResult
-    mutating func tailPositionDidChange(
-        extentAfter: CGFloat,
-        movingTowardTail: Bool
-    ) -> Bool {
-        guard !isFollowingTail,
-              movingTowardTail,
-              extentAfter.isFinite,
-              extentAfter <= Self.resumeThreshold else {
-            return false
+    mutating func userScrollPositionDidChange(extentAfter: CGFloat) -> ChatFollowTailTransition {
+        guard extentAfter.isFinite else { return .none }
+        let isAtTail = max(0, extentAfter) <= Self.tailTolerance
+
+        if isAtTail {
+            guard !isFollowingTail else { return .none }
+            isFollowingTail = true
+            return .resumed
         }
-        isFollowingTail = true
-        return true
+
+        guard isFollowingTail else { return .none }
+        isFollowingTail = false
+        return .paused
     }
 }
 
