@@ -41,7 +41,7 @@ final class AppKitUIRegressionTests: XCTestCase {
         XCTAssertLessThan(measured, 2_000)
     }
 
-    func testCompletedMarkdownUsesLibraryRendererAndSizesAfterParse() async throws {
+    func testMarkdownUsesLibraryRendererAndSizesAfterParse() async throws {
         let rendered = expectation(description: "CDMarkdownKit parse completed")
         let markdown = MarkdownWithCodeBlocksView(
             text: """
@@ -76,6 +76,40 @@ final class AppKitUIRegressionTests: XCTestCase {
         XCTAssertGreaterThan(textView.intrinsicContentSize.height, 40)
     }
 
+    func testStreamingMarkdownUpdateKeepsOneLibraryTextView() async throws {
+        let firstRendered = expectation(description: "first markdown snapshot rendered")
+        let secondRendered = expectation(description: "second markdown snapshot rendered")
+        var renderCount = 0
+
+        let markdown = MarkdownWithCodeBlocksView(
+            text: "第一段 **Markdown**",
+            onLayoutChange: {
+                renderCount += 1
+                if renderCount == 1 {
+                    firstRendered.fulfill()
+                } else if renderCount == 2 {
+                    secondRendered.fulfill()
+                }
+            }
+        )
+        markdown.frame = NSRect(x: 0, y: 0, width: 420, height: 40)
+        markdown.layoutSubtreeIfNeeded()
+
+        await fulfillment(of: [firstRendered], timeout: 3)
+        let firstTextView = try XCTUnwrap(
+            descendants(of: AutoHeightMarkdownTextView.self, in: markdown).first
+        )
+
+        XCTAssertTrue(markdown.update(text: "第一段 **Markdown**\n\n- 流式新增列表"))
+        await fulfillment(of: [secondRendered], timeout: 3)
+
+        let secondTextView = try XCTUnwrap(
+            descendants(of: AutoHeightMarkdownTextView.self, in: markdown).first
+        )
+        XCTAssertTrue(firstTextView === secondTextView)
+        XCTAssertTrue(secondTextView.string.contains("流式新增列表"))
+    }
+
     func testCircleIconButtonDrawsTrueCircleEvenWithNonSquareControlBounds() throws {
         let button = CircleIconButton(
             symbolName: "xmark",
@@ -86,8 +120,6 @@ final class AppKitUIRegressionTests: XCTestCase {
             target: nil,
             action: nil
         )
-        // Reproduce AppKit's historical borderless-control behaviour where the
-        // cell can end up a few points taller than the requested visual size.
         button.frame = NSRect(x: 0, y: 0, width: 28, height: 31)
         button.layoutSubtreeIfNeeded()
 
