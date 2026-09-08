@@ -40,11 +40,18 @@ final class PanelSessionViewModel: ObservableObject {
         if let published = aiSession.streamingAssistantID {
             return published
         }
-        guard aiSession.isLoading else { return nil }
-        // AiAgentSession appends the assistant draft before the transport starts.
-        // Use that stable draft ID even before the first token so AppKit can show
-        // a real loading/reasoning surface immediately instead of a detached row.
-        return aiSession.visibleMessages.last(where: { $0.role == .assistant })?.id
+        guard aiSession.isLoading,
+              let draft = aiSession.visibleMessages.last(where: { $0.role == .assistant }),
+              draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              draft.reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        // New requests append an empty assistant draft before transport starts.
+        // Expose that stable draft immediately so reasoning-aware modes can show
+        // their disclosure/spinner before the first network token. Regeneration
+        // keeps a non-empty previous answer, so it intentionally waits for the
+        // first replacement chunk instead of turning old Markdown into a draft.
+        return draft.id
     }
 
     var conversationMessages: [AiMessage] {
