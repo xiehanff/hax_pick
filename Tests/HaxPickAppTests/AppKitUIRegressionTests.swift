@@ -41,27 +41,42 @@ final class AppKitUIRegressionTests: XCTestCase {
         XCTAssertLessThan(measured, 2_000)
     }
 
-    func testMarkdownCodeBlockCreatesVisibleTextView() throws {
+    func testCompletedMarkdownUsesLibraryRendererAndSizesAfterParse() async throws {
+        let rendered = expectation(description: "CDMarkdownKit parse completed")
         let markdown = MarkdownWithCodeBlocksView(
             text: """
-            示例：
+            ## 示例
+
+            - 第一项
+            - 第二项
+
             ```swift
             let value = 42
             print(value)
             ```
-            完成。
-            """
+            """,
+            onLayoutChange: {
+                rendered.fulfill()
+            }
         )
+        markdown.frame = NSRect(x: 0, y: 0, width: 420, height: 40)
+        markdown.layoutSubtreeIfNeeded()
 
-        let codeText = try XCTUnwrap(
-            descendants(of: NSTextView.self, in: markdown)
-                .first(where: { $0.string.contains("let value = 42") })
+        await fulfillment(of: [rendered], timeout: 3)
+
+        let textView = try XCTUnwrap(
+            descendants(of: AutoHeightMarkdownTextView.self, in: markdown).first
         )
-        XCTAssertGreaterThan(codeText.frame.width, 0)
-        XCTAssertGreaterThan(codeText.frame.height, 0)
+        textView.frame = NSRect(x: 0, y: 0, width: 420, height: 40)
+        textView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(textView.string.contains("示例"))
+        XCTAssertTrue(textView.string.contains("第一项"))
+        XCTAssertTrue(textView.string.contains("let value = 42"))
+        XCTAssertGreaterThan(textView.intrinsicContentSize.height, 40)
     }
 
-    func testCircleIconButtonUsesHalfHeightCornerRadius() {
+    func testCircleIconButtonDrawsTrueCircleEvenWithNonSquareControlBounds() throws {
         let button = CircleIconButton(
             symbolName: "xmark",
             accessibilityDescription: "关闭",
@@ -71,11 +86,17 @@ final class AppKitUIRegressionTests: XCTestCase {
             target: nil,
             action: nil
         )
-        button.frame = NSRect(x: 0, y: 0, width: 28, height: 28)
+        // Reproduce AppKit's historical borderless-control behaviour where the
+        // cell can end up a few points taller than the requested visual size.
+        button.frame = NSRect(x: 0, y: 0, width: 28, height: 31)
         button.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(button.bounds.width, button.bounds.height, accuracy: 0.01)
-        XCTAssertEqual(button.layer?.cornerRadius ?? 0, 14, accuracy: 0.01)
+        let circleLayer = try XCTUnwrap(
+            button.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first
+        )
+        let bounds = try XCTUnwrap(circleLayer.path?.boundingBox)
+        XCTAssertEqual(bounds.width, bounds.height, accuracy: 0.01)
+        XCTAssertEqual(bounds.width, 28, accuracy: 0.01)
     }
 
     private func descendants<T: NSView>(of type: T.Type, in root: NSView) -> [T] {
