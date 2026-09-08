@@ -151,7 +151,7 @@ final class AiMessageBubble: NSView {
             )
             reasoningView = disclosure
             stack.addArrangedSubview(disclosure)
-            disclosure.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            disclosure.constrainWidth(to: stack)
         }
 
         if !currentMessage.content.isEmpty {
@@ -199,7 +199,7 @@ final class AiMessageBubble: NSView {
             )
             reasoningView = disclosure
             stack.insertArrangedSubview(disclosure, at: 0)
-            disclosure.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            disclosure.constrainWidth(to: stack)
             needsImmediateLayout = true
         }
 
@@ -222,8 +222,6 @@ final class AiMessageBubble: NSView {
         } else if let markdown = assistantMarkdownView,
                   assistantBodyView === markdown {
             if contentChanged {
-                // CDMarkdownKit applies the new layout asynchronously and calls
-                // onLayoutChange only after the parsed snapshot is ready.
                 markdown.update(text: currentMessage.content)
             }
             if opacityChanged {
@@ -277,6 +275,7 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
     private var bodyView: NSView?
     private var markdownBodyView: MarkdownWithCodeBlocksView?
     private var collapseFooter: NSView?
+    private var expandedWidthConstraint: NSLayoutConstraint?
 
     init(text: String, isStreaming: Bool, onLayoutChange: @escaping () -> Void) {
         self.text = text
@@ -288,12 +287,22 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
             borderColor: AppTheme.border.withAlphaComponent(0.62),
             borderWidth: 0.75
         )
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
         buildUI()
         refreshHeader()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func constrainWidth(to parent: NSView) {
+        widthAnchor.constraint(lessThanOrEqualTo: parent.widthAnchor).isActive = true
+        let expanded = widthAnchor.constraint(equalTo: parent.widthAnchor)
+        expanded.priority = .required
+        expanded.isActive = isExpanded
+        expandedWidthConstraint = expanded
     }
 
     @discardableResult
@@ -333,35 +342,38 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -9),
         ])
 
-        let header = NSView()
-        header.translatesAutoresizingMaskIntoConstraints = false
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 6
-        row.translatesAutoresizingMaskIntoConstraints = false
+        let headerRow = NSStackView()
+        headerRow.orientation = .horizontal
+        headerRow.alignment = .centerY
+        headerRow.spacing = 7
+        headerRow.translatesAutoresizingMaskIntoConstraints = false
+
+        let buttonSurface = NSView()
+        buttonSurface.translatesAutoresizingMaskIntoConstraints = false
+        let buttonContent = NSStackView()
+        buttonContent.orientation = .horizontal
+        buttonContent.alignment = .centerY
+        buttonContent.spacing = 5
+        buttonContent.translatesAutoresizingMaskIntoConstraints = false
+
         let title = NSTextField.haxLabel(
             "思考过程",
             font: .systemFont(ofSize: 11.5, weight: .medium),
             color: AppTheme.textSecondary.withAlphaComponent(0.72)
         )
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.widthAnchor.constraint(equalToConstant: 12).isActive = true
-        spinner.heightAnchor.constraint(equalToConstant: 12).isActive = true
+        title.maximumNumberOfLines = 1
+        title.lineBreakMode = .byClipping
+
         chevron.translatesAutoresizingMaskIntoConstraints = false
         chevron.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
         chevron.contentTintColor = AppTheme.textSecondary.withAlphaComponent(0.72)
-        chevron.widthAnchor.constraint(equalToConstant: 10).isActive = true
-        chevron.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        chevron.widthAnchor.constraint(equalToConstant: 9).isActive = true
+        chevron.heightAnchor.constraint(equalToConstant: 9).isActive = true
 
-        row.addArrangedSubview(title)
-        row.addArrangedSubview(spinner)
-        row.addArrangedSubview(NSView())
-        row.addArrangedSubview(chevron)
-        header.addSubview(row)
-        row.pinEdges(to: header)
+        buttonContent.addArrangedSubview(title)
+        buttonContent.addArrangedSubview(chevron)
+        buttonSurface.addSubview(buttonContent)
+        buttonContent.pinEdges(to: buttonSurface)
 
         let button = NSButton(title: "", target: self, action: #selector(toggleExpanded))
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -369,11 +381,18 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
         button.isBordered = false
         button.focusRingType = .none
         button.setAccessibilityLabel("思考过程")
-        header.addSubview(button)
-        button.pinEdges(to: header)
+        buttonSurface.addSubview(button)
+        button.pinEdges(to: buttonSurface)
 
-        stack.addArrangedSubview(header)
-        header.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.widthAnchor.constraint(equalToConstant: 12).isActive = true
+        spinner.heightAnchor.constraint(equalToConstant: 12).isActive = true
+
+        headerRow.addArrangedSubview(buttonSurface)
+        headerRow.addArrangedSubview(spinner)
+        stack.addArrangedSubview(headerRow)
     }
 
     private func refreshHeader() {
@@ -392,6 +411,7 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
 
     @objc private func toggleExpanded() {
         isExpanded.toggle()
+        expandedWidthConstraint?.isActive = isExpanded
         refreshHeader()
         if isExpanded {
             rebuildExpandedBody()

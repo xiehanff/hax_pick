@@ -5,8 +5,17 @@ enum HaxIconAsset: String, CaseIterable {
     case refresh = "refresh-01-stroke-rounded"
     case send = "send-stroke-rounded"
 
+    /// Normalized template image used by buttons. The source SVGs have slightly
+    /// different natural bounds; giving every asset the same AppKit image size
+    /// keeps text-action icons visually aligned before NSButton lays them out.
     var image: NSImage {
-        HaxIconImageStore.images[self] ?? NSImage()
+        guard let source = HaxIconImageStore.images[self],
+              let image = source.copy() as? NSImage else {
+            return NSImage()
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 12, height: 12)
+        return image
     }
 }
 

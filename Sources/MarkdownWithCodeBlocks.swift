@@ -75,8 +75,6 @@ final class MarkdownWithCodeBlocksView: NSView {
 
                 guard !Task.isCancelled else { break }
                 guard revision == self.requestedRevision else {
-                    // A newer streaming snapshot arrived while parsing. Do not
-                    // flash an older render; immediately parse the latest text.
                     continue
                 }
 
@@ -96,7 +94,6 @@ final class MarkdownWithCodeBlocksView: NSView {
                 attributes: [
                     .font: NSFont.systemFont(ofSize: fontSize),
                     .foregroundColor: textColor,
-                    .paragraphStyle: Self.makeBodyParagraphStyle(),
                 ]
             )
         )
@@ -119,23 +116,15 @@ final class MarkdownWithCodeBlocksView: NSView {
         onLayoutChange()
     }
 
-    private static func makeBodyParagraphStyle() -> NSMutableParagraphStyle {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 7
-        paragraph.paragraphSpacing = 12
-        paragraph.paragraphSpacingBefore = 2
-        return paragraph
-    }
-
     private static func makeParser(textColor: NSColor, fontSize: CGFloat) -> CDMarkdownParser {
-        let paragraph = makeBodyParagraphStyle()
+        // Let CDMarkdownKit own paragraph metrics. HaxPick only customizes the
+        // product palette and type scale; line/paragraph spacing stays with the
+        // renderer so headings, lists, prose and code keep coherent defaults.
         let parser = CDMarkdownParser(
             font: .systemFont(ofSize: fontSize),
             fontColor: textColor,
             backgroundColor: .clear,
-            paragraphStyle: paragraph,
-            automaticLinkDetectionEnabled: true,
-            squashNewlines: false
+            automaticLinkDetectionEnabled: true
         )
 
         let codeBackground = NSColor(hex: 0x2E3038, alpha: 0.96)
@@ -157,14 +146,9 @@ final class MarkdownWithCodeBlocksView: NSView {
         parser.code.font = mono
         parser.code.color = codeText
         parser.code.backgroundColor = codeBackground
-
-        let codeParagraph = makeBodyParagraphStyle()
-        codeParagraph.lineSpacing = 5
-        codeParagraph.paragraphSpacing = 10
         parser.syntax.font = mono
         parser.syntax.color = codeText
         parser.syntax.backgroundColor = codeBackground
-        parser.syntax.paragraphStyle = codeParagraph
 
         return parser
     }

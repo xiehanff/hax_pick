@@ -14,9 +14,6 @@ extension NSColor {
 }
 
 enum AppTheme {
-    // HaxPick currently ships a light visual system. AppKit controls inherit the
-    // system appearance by default, which makes borderless buttons/text fields
-    // render with dark-mode colors on our light custom surfaces.
     static let windowAppearance = NSAppearance(named: .aqua)!
 
     static let background = NSColor(hex: 0xF6F6F7)
@@ -55,10 +52,6 @@ final class HaxPickPanel: NSPanel {
 
 // MARK: - Reusable AppKit surfaces
 
-/// A layer-backed rounded surface whose stroke follows the final AppKit bounds.
-/// CALayer.borderWidth can look clipped or square while a view is being resized;
-/// keeping the stroke in a CAShapeLayer makes the fill, clipping and border share
-/// one rounded geometry.
 class RoundedSurfaceView: NSView {
     private let surfaceCornerRadius: CGFloat
     private let surfaceBorderWidth: CGFloat
@@ -110,10 +103,6 @@ class RoundedSurfaceView: NSView {
     }
 }
 
-/// Borderless NSButton may still use the platform control-cell height even when
-/// Auto Layout asks for a square frame. Draw the background as an independent
-/// circle inside the actual bounds so the visual is mathematically circular even
-/// if AppKit gives the control a few extra vertical points.
 final class CircleIconButton: NSButton {
     private let diameter: CGFloat
     private let backgroundCircle = CAShapeLayer()
@@ -355,7 +344,19 @@ extension NSButton {
         color: NSColor,
         font: NSFont? = nil
     ) {
-        let value = title ?? self.title
+        var value = title ?? self.title
+
+        // Legacy retry call sites used a Unicode arrow in the title while the
+        // copy action used an SVG asset, so their visual sizes could never line
+        // up. Normalize that one legacy form onto the shared refresh asset.
+        let retryPrefix = "↻ "
+        if value.hasPrefix(retryPrefix) {
+            value = String(value.dropFirst(retryPrefix.count))
+            image = HaxIconAsset.refresh.image
+            imagePosition = .imageLeading
+            imageScaling = .scaleProportionallyDown
+        }
+
         let resolvedFont = font ?? self.font ?? .systemFont(ofSize: NSFont.systemFontSize)
         self.title = value
         attributedTitle = NSAttributedString(

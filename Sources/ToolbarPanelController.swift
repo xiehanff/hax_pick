@@ -74,7 +74,10 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
     private func buildPanel() -> HaxPickPanel {
         let panel = HaxPickPanel(
             contentRect: NSRect(origin: .zero, size: FloatingPanelLayout.toolbarSize),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            // The toolbar is kept non-key by how it is presented, not by making
+            // the window a nonactivating panel. Result mode must be a real key
+            // window so NSTextView can own the field editor / insertion point.
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )

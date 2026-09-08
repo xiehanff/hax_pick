@@ -170,6 +170,8 @@ final class AppState: ObservableObject {
         }
     )
     private var hasStarted = false
+    private var permissionPollTimer: Timer?
+    private var didBecomeActiveObserver: NSObjectProtocol?
 
     init(
         apiKeyStore: any APIKeyStoring = KeychainAPIKeyStore(),
@@ -220,15 +222,15 @@ final class AppState: ObservableObject {
         hasStarted = true
         NSApp.setActivationPolicy(.accessory)
 
-        // Query TCC again after the application has fully launched. This avoids
-        // keeping an initialization-time value if the process identity changed
-        // between builds.
         permissionGranted = AXIsProcessTrusted()
+        installPermissionMonitoring()
         selectionMonitor.start()
+
         if permissionGranted {
             statusMessage = "已开始监听划词"
         } else {
             statusMessage = "需要开启辅助功能权限"
+            startPermissionPollingIfNeeded()
             permissionGuideController.presentIfNeeded()
         }
     }
@@ -238,6 +240,12 @@ final class AppState: ObservableObject {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         permissionGranted = AXIsProcessTrustedWithOptions(options)
         statusMessage = permissionGranted ? "辅助功能权限已开启" : "已发起权限申请，请在系统设置中开启"
+
+        if permissionGranted {
+            stopPermissionPolling()
+        } else {
+            startPermissionPollingIfNeeded()
+        }
         permissionGuideController.syncVisibility(permissionGranted: permissionGranted)
     }
 
@@ -245,6 +253,12 @@ final class AppState: ObservableObject {
         permissionRepairError = nil
         permissionGranted = AXIsProcessTrusted()
         statusMessage = permissionGranted ? "权限状态正常，可以开始划词" : "当前进程仍未获得辅助功能权限"
+
+        if permissionGranted {
+            stopPermissionPolling()
+        } else {
+            startPermissionPollingIfNeeded()
+        }
         permissionGuideController.syncVisibility(permissionGranted: permissionGranted)
     }
 
@@ -270,6 +284,7 @@ final class AppState: ObservableObject {
 
             self.permissionGranted = false
             self.statusMessage = "旧权限记录已清除，请重新开启 HaxPick"
+            self.startPermissionPollingIfNeeded()
 
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
@@ -464,12 +479,62 @@ final class AppState: ObservableObject {
         NSApp.terminate(nil)
     }
 
+    private func installPermissionMonitoring() {
+        guard didBecomeActiveObserver == nil else { return }
+
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshPermissionStatus()
+            }
+        }
+    }
+
+    private func startPermissionPollingIfNeeded() {
+        guard !permissionGranted, permissionPollTimer == nil else { return }
+
+        let timer = Timer(timeInterval: 0.75, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.pollPermissionStatus()
+            }
+        }
+        permissionPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopPermissionPolling() {
+        permissionPollTimer?.invalidate()
+        permissionPollTimer = nil
+    }
+
+    private func pollPermissionStatus() {
+        let trustedNow = AXIsProcessTrusted()
+        guard trustedNow != permissionGranted else { return }
+
+        permissionGranted = trustedNow
+        permissionRepairError = nil
+        statusMessage = trustedNow
+            ? "辅助功能权限已开启，可以开始划词"
+            : "辅助功能权限已关闭"
+
+        if trustedNow {
+            stopPermissionPolling()
+        }
+        permissionGuideController.syncVisibility(permissionGranted: trustedNow)
+    }
+
     private func showToolbar(for text: String, at point: NSPoint) {
-        // Re-check at the moment the privileged operation is needed. If the user
-        // changed the grant while HaxPick was running, the UI state self-corrects.
         let trustedNow = AXIsProcessTrusted()
         if trustedNow != permissionGranted {
             permissionGranted = trustedNow
+            if trustedNow {
+                stopPermissionPolling()
+            } else {
+                startPermissionPollingIfNeeded()
+            }
         }
         guard trustedNow else {
             statusMessage = "检测到划词，但当前进程没有辅助功能权限"
