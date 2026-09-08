@@ -7,8 +7,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = AppTheme.windowAppearance
+        configureMainMenu()
         configureStatusItem()
         AppState.shared.start()
+    }
+
+    /// NSTextField/NSSecureTextField route Command-X/C/V/A through the responder
+    /// chain, but an accessory app with no main Edit menu has no key equivalents
+    /// to dispatch those commands. Install the standard editing menu once for the
+    /// whole app so API-key and chat text fields behave like normal macOS controls.
+    private func configureMainMenu() {
+        let mainMenu = NSMenu(title: "MainMenu")
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu(title: "HaxPick")
+        let quit = NSMenuItem(title: "退出 HaxPick", action: #selector(quitApp), keyEquivalent: "q")
+        quit.target = self
+        appMenu.addItem(quit)
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "编辑")
+        editMenu.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "重做", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "剪切", action: Selector(("cut:")), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "复制", action: Selector(("copy:")), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "粘贴", action: Selector(("paste:")), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "全选", action: Selector(("selectAll:")), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+
+        NSApp.mainMenu = mainMenu
     }
 
     private func configureStatusItem() {
