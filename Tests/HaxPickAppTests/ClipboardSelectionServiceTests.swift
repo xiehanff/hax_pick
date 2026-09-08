@@ -73,4 +73,35 @@ final class ClipboardSelectionServiceTests: XCTestCase {
             XCTAssertEqual(result, scenario.expected)
         }
     }
+
+    func testPasteboardChangeIsMeasuredFromMarkerBaseline() {
+        XCTAssertFalse(
+            ClipboardSelectionService.pasteboardChanged(
+                since: 42,
+                currentChangeCount: 42
+            )
+        )
+        XCTAssertTrue(
+            ClipboardSelectionService.pasteboardChanged(
+                since: 42,
+                currentChangeCount: 43
+            )
+        )
+    }
+
+    func testSnapshotRestoreRequiresUnchangedObservationVersion() {
+        XCTAssertTrue(
+            ClipboardSelectionService.shouldRestoreSnapshot(
+                observedChangeCount: 100,
+                currentChangeCount: 100
+            )
+        )
+        XCTAssertFalse(
+            ClipboardSelectionService.shouldRestoreSnapshot(
+                observedChangeCount: 100,
+                currentChangeCount: 101
+            ),
+            "观察到复制结果之后若剪贴板再次变化，就不能恢复旧快照覆盖新内容"
+        )
+    }
 }

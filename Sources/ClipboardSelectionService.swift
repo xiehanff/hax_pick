@@ -87,22 +87,36 @@ enum ClipboardSelectionService {
 
         pasteboard.clearContents()
         pasteboard.setString(marker, forType: .string)
+        let markerChangeCount = pasteboard.changeCount
 
         copyAction()
-        let result = await waitForPasteboardResult(
+        let observation = await waitForPasteboardResult(
             pasteboard: pasteboard,
             marker: marker,
+            markerChangeCount: markerChangeCount,
             fallbackStartedAt: fallbackStartedAt,
             timeout: timeout,
             userCopyShortcutDetected: userCopyShortcutDetected
         )
 
-        switch result {
+        switch observation.result {
         case .copiedText(let text):
-            snapshot.restore(to: pasteboard)
+            restoreSnapshotIfUnchanged(
+                snapshot,
+                to: pasteboard,
+                expectedChangeCount: observation.changeCount
+            )
             return text
         case .timedOut:
-            snapshot.restore(to: pasteboard)
+            // 只有 marker 写入之后再无任何剪贴板变化时才恢复旧快照。
+            // 一旦出现无法归因的变化，宁可保留新内容，也不能覆盖用户/其他应用的写入。
+            if observation.changeCount == markerChangeCount {
+                restoreSnapshotIfUnchanged(
+                    snapshot,
+                    to: pasteboard,
+                    expectedChangeCount: markerChangeCount
+                )
+            }
             return nil
         case .externalWrite:
             return nil
@@ -112,19 +126,28 @@ enum ClipboardSelectionService {
     private static func waitForPasteboardResult(
         pasteboard: NSPasteboard,
         marker: String,
+        markerChangeCount: Int,
         fallbackStartedAt: Date,
         timeout: TimeInterval,
         userCopyShortcutDetected: @escaping (Date) -> Bool
-    ) async -> PasteboardCopyResult {
+    ) async -> PasteboardCopyObservation {
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
             if Task.isCancelled {
-                return .timedOut
+                return PasteboardCopyObservation(
+                    result: .timedOut,
+                    changeCount: pasteboard.changeCount
+                )
             }
+
+            let observedChangeCount = pasteboard.changeCount
             let currentString = pasteboard.string(forType: .string)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let didChangeExternally = pasteboard.changeCount > 0
+            let didChangeExternally = pasteboardChanged(
+                since: markerChangeCount,
+                currentChangeCount: observedChangeCount
+            )
             let didDetectUserCopyShortcut = userCopyShortcutDetected(fallbackStartedAt)
 
             if let result = classifyPasteboardObservation(
@@ -133,17 +156,34 @@ enum ClipboardSelectionService {
                 didChangeExternally: didChangeExternally,
                 didDetectUserCopyShortcut: didDetectUserCopyShortcut
             ) {
-                return result
+                return PasteboardCopyObservation(
+                    result: result,
+                    changeCount: observedChangeCount
+                )
             }
 
             do {
                 try await Task.sleep(nanoseconds: 20_000_000)
             } catch {
-                return .timedOut
+                return PasteboardCopyObservation(
+                    result: .timedOut,
+                    changeCount: pasteboard.changeCount
+                )
             }
         }
 
-        return .timedOut
+        return PasteboardCopyObservation(
+            result: .timedOut,
+            changeCount: pasteboard.changeCount
+        )
+    }
+
+    static func pasteboardChanged(since markerChangeCount: Int, currentChangeCount: Int) -> Bool {
+        currentChangeCount != markerChangeCount
+    }
+
+    static func shouldRestoreSnapshot(observedChangeCount: Int, currentChangeCount: Int) -> Bool {
+        observedChangeCount == currentChangeCount
     }
 
     static func classifyPasteboardObservation(
@@ -173,12 +213,31 @@ enum ClipboardSelectionService {
 
         return nil
     }
+
+    private static func restoreSnapshotIfUnchanged(
+        _ snapshot: PasteboardSnapshot,
+        to pasteboard: NSPasteboard,
+        expectedChangeCount: Int
+    ) {
+        guard shouldRestoreSnapshot(
+            observedChangeCount: expectedChangeCount,
+            currentChangeCount: pasteboard.changeCount
+        ) else {
+            return
+        }
+        snapshot.restore(to: pasteboard)
+    }
 }
 
 enum PasteboardCopyResult: Equatable {
     case copiedText(String)
     case externalWrite
     case timedOut
+}
+
+private struct PasteboardCopyObservation {
+    let result: PasteboardCopyResult
+    let changeCount: Int
 }
 
 private struct PasteboardSnapshot {

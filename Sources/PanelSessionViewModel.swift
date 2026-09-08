@@ -125,7 +125,8 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     /// 重新划词不销毁正在进行的对话:有内容或仍在生成的会话被归档,
-    /// 其请求任务继续在后台跑;空会话直接清空复用。
+    /// 其请求任务继续在后台跑;空会话直接清空复用。只保留一个归档槽位，
+    /// 覆盖更旧归档前必须取消其请求，避免形成无法恢复的后台生成任务。
     private func archiveActiveConversationIfNeeded() {
         let worthKeeping = aiSession.isLoading ||
             aiSession.visibleMessages.contains { !$0.content.isEmpty }
@@ -133,6 +134,7 @@ final class PanelSessionViewModel: ObservableObject {
             aiSession.clear()
             return
         }
+        archivedConversation?.session.cancel()
         archivedConversation = (aiSession, selectedText)
         aiSession = makeSession()
         observeAgentSession()
@@ -222,6 +224,9 @@ final class PanelSessionViewModel: ObservableObject {
         guard !isDismissed else { return false }
         isDismissed = true
         aiSession.cancel()
+        archivedConversation?.session.cancel()
+        archivedConversation = nil
+        hasResumableConversation = false
         return true
     }
 

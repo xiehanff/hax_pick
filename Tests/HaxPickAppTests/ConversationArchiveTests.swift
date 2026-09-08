@@ -60,11 +60,80 @@ final class ConversationArchiveTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedText, "原文")
     }
 
+    func testThirdReselectionCancelsSupersededArchivedRequest() async throws {
+        let firstResponder = ArchiveResponder()
+        let secondResponder = ArchiveResponder()
+        defer {
+            firstResponder.finish()
+            secondResponder.finish()
+        }
+
+        let firstSession = AiAgentSession(
+            stream: { _ in firstResponder.stream() },
+            publishIntervalNanoseconds: 0
+        )
+        let viewModel = PanelSessionViewModel(
+            aiSession: firstSession,
+            makeSession: {
+                AiAgentSession(
+                    stream: { _ in secondResponder.stream() },
+                    publishIntervalNanoseconds: 0
+                )
+            },
+            onClose: {}
+        )
+
+        viewModel.reset(with: "selection-a")
+        viewModel.handlePrimaryAction(.deepDive)
+        try await waitUntil { firstResponder.hasContinuation }
+        XCTAssertTrue(firstSession.isLoading)
+
+        viewModel.reset(with: "selection-b")
+        viewModel.handlePrimaryAction(.deepDive)
+        try await waitUntil { secondResponder.hasContinuation }
+
+        // 第三次划词会用 B 覆盖归档槽位；A 已无法从 UI 恢复，因此必须立即取消。
+        viewModel.reset(with: "selection-c")
+        XCTAssertFalse(firstSession.isLoading, "被覆盖的旧归档请求必须取消")
+        XCTAssertTrue(viewModel.hasResumableConversation)
+
+        // B 仍应是唯一可恢复的归档会话，并继续生成。
+        viewModel.resumeArchivedConversation()
+        XCTAssertEqual(viewModel.selectedText, "selection-b")
+        XCTAssertTrue(viewModel.isLoading)
+    }
+
+    func testDismissalCancelsArchivedBackgroundRequest() async throws {
+        let responder = ArchiveResponder()
+        defer { responder.finish() }
+        let archivedSession = AiAgentSession(
+            stream: { _ in responder.stream() },
+            publishIntervalNanoseconds: 0
+        )
+        let viewModel = PanelSessionViewModel(
+            aiSession: archivedSession,
+            makeSession: { AiAgentSession(complete: { _ in "" }) },
+            onClose: {}
+        )
+
+        viewModel.reset(with: "selection-a")
+        viewModel.handlePrimaryAction(.deepDive)
+        try await waitUntil { responder.hasContinuation }
+        viewModel.reset(with: "selection-b")
+
+        XCTAssertTrue(archivedSession.isLoading)
+        XCTAssertTrue(viewModel.hasResumableConversation)
+        XCTAssertTrue(viewModel.prepareForDismissal())
+        XCTAssertFalse(archivedSession.isLoading, "关闭面板时归档请求也必须停止")
+        XCTAssertFalse(viewModel.hasResumableConversation)
+    }
+
     private func waitUntil(_ condition: @escaping () -> Bool) async throws {
         for _ in 0..<400 {
             if condition() { return }
             try await Task.sleep(nanoseconds: 5_000_000)
         }
+        XCTFail("Expected asynchronous condition to become true")
     }
 }
 

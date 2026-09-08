@@ -95,7 +95,9 @@ enum AccessibilityTextService {
             &focusedObject
         )
 
-        guard focusedResult == .success, let element = focusedObject else {
+        guard focusedResult == .success,
+              let element = focusedObject,
+              CFGetTypeID(element) == AXUIElementGetTypeID() else {
             return nil
         }
         return (element as! AXUIElement)
@@ -139,7 +141,9 @@ enum AccessibilityTextService {
             &rangeValue
         )
 
-        guard result == .success, let value = rangeValue else {
+        guard result == .success,
+              let value = rangeValue,
+              CFGetTypeID(value) == AXValueGetTypeID() else {
             return nil
         }
         return (value as! AXValue)
