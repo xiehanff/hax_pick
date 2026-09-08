@@ -34,6 +34,7 @@
 		D00700000000000000000001 /* ResultPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00700000000000000000001 /* ResultPanelView.swift */; };
 		F10000000000000000000001 /* HaxIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* HaxIcon.swift */; };
 		F10100000000000000000001 /* HaxIcons in Resources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000002 /* HaxIcons */; };
+		F20000000000000000000001 /* CDMarkdownKit in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000002 /* CDMarkdownKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -73,6 +74,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				55D3D0214EC17545E3D5C791 /* Cocoa.framework in Frameworks */,
+				F20000000000000000000001 /* CDMarkdownKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -169,6 +171,9 @@
 			dependencies = (
 			);
 			name = hax_pick;
+			packageProductDependencies = (
+				F20000000000000000000002 /* CDMarkdownKit */,
+			);
 			productName = hax_pick;
 			productReference = 53F0B87F8EAA840A1A6E7D40 /* hax_pick.app */;
 			productType = "com.apple.product-type.application";
@@ -192,6 +197,9 @@
 			);
 			mainGroup = F5C1051224EEDF073ED734D4;
 			minimizedProjectReferenceProxies = 0;
+			packageReferences = (
+				F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2CF3D2E3E3BE55A3B52AB784 /* Products */;
 			projectDirPath = "";
@@ -263,6 +271,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/chrisdhaan/CDMarkdownKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F20000000000000000000002 /* CDMarkdownKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */;
+			productName = CDMarkdownKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		45CEBE4039440F7B0FD68922 /* Debug */ = {
