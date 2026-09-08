@@ -31,7 +31,7 @@ final class SettingsWindowController: NSWindowController {
     init(appState: AppState) {
         let controller = SettingsViewController(appState: appState)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 430),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 460),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -54,12 +54,12 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     private let appState: AppState
     private var observation: AnyCancellable?
     private var fieldObservation: AnyCancellable?
-    private var lastCommittedAPIKey = ""
     private var apiKeyVisible = false
 
     private let permissionIcon = NSImageView()
     private let permissionLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 12))
     private let permissionButton = NSButton()
+    private let permissionRepairButton = NSButton()
     private let modelPopup = NSPopUpButton()
     private let secureKeyField = APIKeySecureTextField()
     private let plainKeyField = APIKeyTextField()
@@ -109,7 +109,6 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         configureControls()
-        lastCommittedAPIKey = appState.apiKey
         secureKeyField.stringValue = appState.apiKey
         plainKeyField.stringValue = appState.apiKey
 
@@ -138,16 +137,19 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 9
+        row.spacing = 8
         permissionIcon.translatesAutoresizingMaskIntoConstraints = false
         permissionIcon.symbolConfiguration = .init(pointSize: 15, weight: .medium)
         permissionIcon.widthAnchor.constraint(equalToConstant: 18).isActive = true
         permissionIcon.heightAnchor.constraint(equalToConstant: 18).isActive = true
         permissionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         permissionButton.translatesAutoresizingMaskIntoConstraints = false
+        permissionRepairButton.translatesAutoresizingMaskIntoConstraints = false
+
         row.addArrangedSubview(permissionIcon)
         row.addArrangedSubview(permissionLabel)
         row.addArrangedSubview(NSView())
+        row.addArrangedSubview(permissionRepairButton)
         row.addArrangedSubview(permissionButton)
         return section(title: "辅助功能权限", content: row)
     }
@@ -164,20 +166,18 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         modelRow.spacing = 8
         let modelLabel = NSTextField.haxLabel("模型", font: .systemFont(ofSize: 12, weight: .medium))
         modelPopup.translatesAutoresizingMaskIntoConstraints = false
-        modelPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
+        modelPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         modelRow.addArrangedSubview(modelLabel)
         modelRow.addArrangedSubview(NSView())
         modelRow.addArrangedSubview(modelPopup)
 
         let keyTitle = NSTextField.haxLabel("DeepSeek API Key", font: .systemFont(ofSize: 12, weight: .medium))
-        let keyRow = NSStackView()
-        keyRow.orientation = .horizontal
-        keyRow.alignment = .centerY
-        keyRow.spacing = 7
 
+        // The API key field owns an entire row. The old field shared horizontal
+        // space with two buttons, which made a long key effectively unreadable.
         let fieldContainer = NSView()
         fieldContainer.translatesAutoresizingMaskIntoConstraints = false
-        fieldContainer.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        fieldContainer.heightAnchor.constraint(equalToConstant: 30).isActive = true
         secureKeyField.translatesAutoresizingMaskIntoConstraints = false
         plainKeyField.translatesAutoresizingMaskIntoConstraints = false
         fieldContainer.addSubview(secureKeyField)
@@ -186,24 +186,31 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         plainKeyField.pinEdges(to: fieldContainer)
         plainKeyField.isHidden = true
 
+        let actionRow = NSStackView()
+        actionRow.orientation = .horizontal
+        actionRow.alignment = .centerY
+        actionRow.spacing = 7
+        keyStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         revealButton.translatesAutoresizingMaskIntoConstraints = false
         revealButton.bezelStyle = .texturedRounded
         revealButton.imagePosition = .imageOnly
         revealButton.widthAnchor.constraint(equalToConstant: 30).isActive = true
+
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.bezelStyle = .rounded
         saveButton.font = .systemFont(ofSize: 12, weight: .medium)
+        saveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 62).isActive = true
 
-        keyRow.addArrangedSubview(fieldContainer)
-        keyRow.addArrangedSubview(revealButton)
-        keyRow.addArrangedSubview(saveButton)
-        fieldContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
-        fieldContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        actionRow.addArrangedSubview(keyStatusLabel)
+        actionRow.addArrangedSubview(NSView())
+        actionRow.addArrangedSubview(revealButton)
+        actionRow.addArrangedSubview(saveButton)
 
         stack.addArrangedSubview(modelRow)
         stack.addArrangedSubview(keyTitle)
-        stack.addArrangedSubview(keyRow)
-        stack.addArrangedSubview(keyStatusLabel)
+        stack.addArrangedSubview(fieldContainer)
+        stack.addArrangedSubview(actionRow)
         for child in stack.arrangedSubviews {
             child.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
@@ -251,13 +258,18 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     }
 
     private func configureControls() {
-        for control in [permissionButton, modelPopup, secureKeyField, plainKeyField, revealButton, saveButton] {
+        for control in [permissionButton, permissionRepairButton, modelPopup, secureKeyField, plainKeyField, revealButton, saveButton] {
             control.appearance = AppTheme.windowAppearance
         }
 
         permissionButton.target = self
         permissionButton.action = #selector(permissionAction)
         permissionButton.bezelStyle = .rounded
+
+        permissionRepairButton.title = "重置权限"
+        permissionRepairButton.target = self
+        permissionRepairButton.action = #selector(repairPermission)
+        permissionRepairButton.bezelStyle = .rounded
 
         modelPopup.removeAllItems()
         modelPopup.addItems(withTitles: appState.availableModels().map(\.displayName))
@@ -271,12 +283,16 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
             field.usesSingleLineMode = true
             field.placeholderString = "粘贴 API Key"
             field.focusRingType = .default
+            field.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+            field.cell?.wraps = false
+            field.cell?.isScrollable = true
+            field.lineBreakMode = .byTruncatingMiddle
         }
 
         revealButton.target = self
         revealButton.action = #selector(toggleKeyVisibility)
         saveButton.target = self
-        saveButton.action = #selector(saveOrRetry)
+        saveButton.action = #selector(saveAPIKey)
         refreshRevealIcon()
     }
 
@@ -290,38 +306,40 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
             accessibilityDescription: nil
         )
         permissionIcon.contentTintColor = appState.permissionGranted ? .systemGreen : .systemOrange
-        permissionLabel.stringValue = appState.permissionGranted
-            ? "已开启，可以监听全局划词"
-            : "开启后才能读取其他应用中的选中文本"
-        permissionButton.title = appState.permissionGranted ? "刷新" : "去开启"
+
+        if let repairError = appState.permissionRepairError, !repairError.isEmpty {
+            permissionLabel.stringValue = "权限记录异常，可重置后重新授权"
+            permissionLabel.toolTip = repairError
+        } else {
+            permissionLabel.stringValue = appState.permissionGranted
+                ? "已开启，可以监听全局划词"
+                : "当前进程未获得权限"
+            permissionLabel.toolTip = nil
+        }
+
+        permissionButton.title = appState.permissionGranted ? "刷新" : "打开设置"
+        permissionRepairButton.isHidden = appState.permissionGranted
 
         if let index = appState.availableModels().firstIndex(of: appState.selectedModel) {
             modelPopup.selectItem(at: index)
         }
 
-        let currentDraft = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if currentDraft == lastCommittedAPIKey {
-            secureKeyField.stringValue = appState.apiKey
-            plainKeyField.stringValue = appState.apiKey
-        }
-        lastCommittedAPIKey = appState.apiKey
-
+        // Generic AppState changes must never overwrite the user's in-progress
+        // API-key edit. Fields are synchronized only on initial load, visibility
+        // toggle, and a successful save.
         refreshSaveButtonState()
         keyStatusLabel.stringValue = appState.apiKeyStorageError ?? appState.apiKeyStorageStatusMessage
         keyStatusLabel.textColor = appState.apiKeyStorageError == nil ? AppTheme.textSecondary : .systemOrange
     }
 
     private func refreshSaveButtonState() {
-        let currentDraft = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shouldEnable = appState.canRetryAPIKeyStorage ||
-            currentDraft != appState.apiKey ||
-            appState.apiKeyStorageError != nil
-        let title = appState.canRetryAPIKeyStorage ? "重试" : "保存"
-
+        // Product rule: only the current text matters. Any non-whitespace value is
+        // saveable, including an unchanged key or a retry after Keychain failure.
+        let shouldEnable = !draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         saveButton.isEnabled = shouldEnable
         saveButton.alphaValue = shouldEnable ? 1 : 0.48
         saveButton.setHaxTitle(
-            title,
+            "保存",
             color: shouldEnable ? AppTheme.textPrimary : AppTheme.textSecondary.withAlphaComponent(0.62),
             font: .systemFont(ofSize: 12, weight: .medium)
         )
@@ -337,8 +355,12 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         if appState.permissionGranted {
             appState.refreshPermissionStatus()
         } else {
-            appState.showPermissionGuide()
+            appState.openAccessibilitySettings()
         }
+    }
+
+    @objc private func repairPermission() {
+        appState.repairAccessibilityPermission()
     }
 
     @objc private func modelChanged() {
@@ -368,16 +390,14 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         )
     }
 
-    @objc private func saveOrRetry() {
-        if appState.canRetryAPIKeyStorage {
-            let oldCommitted = appState.apiKey
-            let unmodified = draftKey.trimmingCharacters(in: .whitespacesAndNewlines) == oldCommitted
-            _ = appState.retryAPIKeyStorage()
-            if unmodified {
-                secureKeyField.stringValue = appState.apiKey
-                plainKeyField.stringValue = appState.apiKey
-            }
-        } else if appState.saveAPIKey(draftKey) {
+    @objc private func saveAPIKey() {
+        let trimmed = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            refreshSaveButtonState()
+            return
+        }
+
+        if appState.saveAPIKey(draftKey) {
             secureKeyField.stringValue = appState.apiKey
             plainKeyField.stringValue = appState.apiKey
         }
