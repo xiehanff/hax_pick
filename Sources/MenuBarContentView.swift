@@ -1,30 +1,28 @@
 import AppKit
 import Combine
 
-private protocol APIKeyPasteHandling where Self: NSTextField {}
+private func handleAPIKeyPaste(field: NSTextField, event: NSEvent) -> Bool {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard flags.contains(.command),
+          !flags.contains(.option),
+          !flags.contains(.control),
+          event.charactersIgnoringModifiers?.lowercased() == "v",
+          let editor = field.currentEditor() else {
+        return false
+    }
+    editor.paste(nil)
+    return true
+}
 
-private extension APIKeyPasteHandling {
-    func handlePasteKeyEquivalent(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command,
-              event.charactersIgnoringModifiers?.lowercased() == "v",
-              let editor = currentEditor() else {
-            return false
-        }
-        editor.paste(nil)
-        return true
+private final class APIKeyTextField: NSTextField {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handleAPIKeyPaste(field: self, event: event) || super.performKeyEquivalent(with: event)
     }
 }
 
-private final class APIKeyTextField: NSTextField, APIKeyPasteHandling {
+private final class APIKeySecureTextField: NSSecureTextField {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        handlePasteKeyEquivalent(event) || super.performKeyEquivalent(with: event)
-    }
-}
-
-private final class APIKeySecureTextField: NSSecureTextField, APIKeyPasteHandling {
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        handlePasteKeyEquivalent(event) || super.performKeyEquivalent(with: event)
+        handleAPIKeyPaste(field: self, event: event) || super.performKeyEquivalent(with: event)
     }
 }
 
