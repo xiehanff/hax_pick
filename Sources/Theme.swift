@@ -53,6 +53,105 @@ final class HaxPickPanel: NSPanel {
     override var canBecomeMain: Bool { true }
 }
 
+// MARK: - Reusable AppKit surfaces
+
+/// A layer-backed rounded surface whose stroke follows the final AppKit bounds.
+/// CALayer.borderWidth can look clipped or square while a view is being resized;
+/// keeping the stroke in a CAShapeLayer makes the fill, clipping and border share
+/// one rounded geometry.
+class RoundedSurfaceView: NSView {
+    private let surfaceCornerRadius: CGFloat
+    private let surfaceBorderWidth: CGFloat
+    private let borderLayer = CAShapeLayer()
+
+    init(
+        cornerRadius: CGFloat,
+        backgroundColor: NSColor,
+        borderColor: NSColor? = nil,
+        borderWidth: CGFloat = 0
+    ) {
+        self.surfaceCornerRadius = cornerRadius
+        self.surfaceBorderWidth = borderWidth
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        appearance = AppTheme.windowAppearance
+        wantsLayer = true
+        layer?.backgroundColor = backgroundColor.cgColor
+        layer?.cornerRadius = cornerRadius
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+
+        if let borderColor, borderWidth > 0 {
+            borderLayer.fillColor = NSColor.clear.cgColor
+            borderLayer.strokeColor = borderColor.cgColor
+            borderLayer.lineWidth = borderWidth
+            borderLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+            layer?.addSublayer(borderLayer)
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        guard surfaceBorderWidth > 0 else { return }
+        let inset = surfaceBorderWidth / 2
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let radius = max(0, surfaceCornerRadius - inset)
+        borderLayer.frame = bounds
+        borderLayer.path = CGPath(
+            roundedRect: rect,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        )
+    }
+}
+
+/// Borderless AppKit buttons do not guarantee a square cell or a layer radius
+/// that tracks the final layout. This control owns both constraints and radius,
+/// so close/action buttons remain true circles at every backing scale.
+final class CircleIconButton: NSButton {
+    init(
+        symbolName: String,
+        accessibilityDescription: String,
+        size: CGFloat,
+        backgroundColor: NSColor,
+        tintColor: NSColor,
+        target: AnyObject?,
+        action: Selector?
+    ) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        appearance = AppTheme.windowAppearance
+        isBordered = false
+        focusRingType = .none
+        imagePosition = .imageOnly
+        imageScaling = .scaleProportionallyDown
+        image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityDescription)?
+            .withSymbolConfiguration(.init(pointSize: max(11, size * 0.38), weight: .regular))
+        contentTintColor = tintColor
+        self.target = target
+        self.action = action
+        wantsLayer = true
+        layer?.backgroundColor = backgroundColor.cgColor
+        layer?.masksToBounds = true
+        widthAnchor.constraint(equalToConstant: size).isActive = true
+        heightAnchor.constraint(equalTo: widthAnchor).isActive = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+    }
+}
+
 // MARK: - AppKit glass surface
 
 enum HaxGlassStyle {
