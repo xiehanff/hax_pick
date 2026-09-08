@@ -293,7 +293,8 @@ final class AiMessageBubble: NSView {
         let body = MarkdownWithCodeBlocksView(
             text: currentMessage.content,
             textColor: AppTheme.textPrimary,
-            fontSize: 13
+            fontSize: 13,
+            onLayoutChange: onLayoutChange
         )
         body.alphaValue = assistantContentOpacity
         return body
@@ -486,7 +487,8 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
             body = MarkdownWithCodeBlocksView(
                 text: text,
                 textColor: AppTheme.textSecondary.withAlphaComponent(0.66),
-                fontSize: 11.5
+                fontSize: 11.5,
+                onLayoutChange: onLayoutChange
             )
         }
 
