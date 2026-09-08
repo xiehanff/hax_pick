@@ -1,6 +1,33 @@
 import AppKit
 import Combine
 
+private protocol APIKeyPasteHandling where Self: NSTextField {}
+
+private extension APIKeyPasteHandling {
+    func handlePasteKeyEquivalent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == .command,
+              event.charactersIgnoringModifiers?.lowercased() == "v",
+              let editor = currentEditor() else {
+            return false
+        }
+        editor.paste(nil)
+        return true
+    }
+}
+
+private final class APIKeyTextField: NSTextField, APIKeyPasteHandling {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handlePasteKeyEquivalent(event) || super.performKeyEquivalent(with: event)
+    }
+}
+
+private final class APIKeySecureTextField: NSSecureTextField, APIKeyPasteHandling {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handlePasteKeyEquivalent(event) || super.performKeyEquivalent(with: event)
+    }
+}
+
 @MainActor
 final class SettingsWindowController: NSWindowController {
     init(appState: AppState) {
@@ -28,6 +55,7 @@ final class SettingsWindowController: NSWindowController {
 final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     private let appState: AppState
     private var observation: AnyCancellable?
+    private var fieldObservation: AnyCancellable?
     private var lastCommittedAPIKey = ""
     private var apiKeyVisible = false
 
@@ -35,8 +63,8 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     private let permissionLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 12))
     private let permissionButton = NSButton()
     private let modelPopup = NSPopUpButton()
-    private let secureKeyField = NSSecureTextField()
-    private let plainKeyField = NSTextField()
+    private let secureKeyField = APIKeySecureTextField()
+    private let plainKeyField = APIKeyTextField()
     private let revealButton = NSButton()
     private let saveButton = NSButton()
     private let keyStatusLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 10.5), color: AppTheme.textSecondary)
@@ -86,10 +114,26 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         lastCommittedAPIKey = appState.apiKey
         secureKeyField.stringValue = appState.apiKey
         plainKeyField.stringValue = appState.apiKey
+
         observation = appState.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refresh() }
         }
+
+        fieldObservation = NotificationCenter.default.publisher(for: NSControl.textDidChangeNotification)
+            .sink { [weak self] notification in
+                guard let self,
+                      let field = notification.object as? NSTextField,
+                      field === self.secureKeyField || field === self.plainKeyField else {
+                    return
+                }
+                self.refreshSaveButtonState()
+            }
         refresh()
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        view.window?.makeFirstResponder(apiKeyVisible ? plainKeyField : secureKeyField)
     }
 
     private func makePermissionSection() -> NSView {
@@ -150,6 +194,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         revealButton.widthAnchor.constraint(equalToConstant: 30).isActive = true
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.bezelStyle = .rounded
+        saveButton.font = .systemFont(ofSize: 12, weight: .medium)
 
         keyRow.addArrangedSubview(fieldContainer)
         keyRow.addArrangedSubview(revealButton)
@@ -180,12 +225,12 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     }
 
     private func section(title: String, content: NSView) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.appearance = AppTheme.windowAppearance
-        container.applyContinuousCornerRadius(12, background: AppTheme.cardBg)
-        container.layer?.borderWidth = 0.75
-        container.layer?.borderColor = AppTheme.border.cgColor
+        let container = RoundedSurfaceView(
+            cornerRadius: 12,
+            backgroundColor: AppTheme.cardBg,
+            borderColor: AppTheme.border,
+            borderWidth: 0.75
+        )
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -227,6 +272,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
             field.isSelectable = true
             field.usesSingleLineMode = true
             field.placeholderString = "粘贴 API Key"
+            field.focusRingType = .default
         }
 
         revealButton.target = self
@@ -269,10 +315,18 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
 
     private func refreshSaveButtonState() {
         let currentDraft = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        saveButton.title = appState.canRetryAPIKeyStorage ? "重试" : "保存"
-        saveButton.isEnabled = appState.canRetryAPIKeyStorage ||
+        let shouldEnable = appState.canRetryAPIKeyStorage ||
             currentDraft != appState.apiKey ||
             appState.apiKeyStorageError != nil
+        let title = appState.canRetryAPIKeyStorage ? "重试" : "保存"
+
+        saveButton.isEnabled = shouldEnable
+        saveButton.alphaValue = shouldEnable ? 1 : 0.48
+        saveButton.setHaxTitle(
+            title,
+            color: shouldEnable ? AppTheme.textPrimary : AppTheme.textSecondary.withAlphaComponent(0.62),
+            font: .systemFont(ofSize: 12, weight: .medium)
+        )
     }
 
     func controlTextDidChange(_ obj: Notification) {
