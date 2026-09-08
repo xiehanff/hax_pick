@@ -8,7 +8,7 @@ extension URLSession: DeepSeekStreamingHTTPClient {
     func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
         let (bytes, response) = try await bytes(for: request)
         let stream = AsyncThrowingStream<String, Error> { continuation in
-            let task = Task {
+            let task = Task.detached(priority: .userInitiated) {
                 do {
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
@@ -76,6 +76,15 @@ struct DeepSeekService {
                 return nil
             }
         }
+
+        var timeoutInterval: TimeInterval {
+            switch self {
+            case .deepDive:
+                return 120
+            case .standard, .translation, .lowReasoning:
+                return 45
+            }
+        }
     }
 
     enum Model: String, CaseIterable, Identifiable {
@@ -112,7 +121,7 @@ struct DeepSeekService {
         let streamingClient = streamingClient
 
         return AsyncThrowingStream { continuation in
-            let task = Task {
+            let task = Task.detached(priority: .userInitiated) {
                 do {
                     guard !apiKey.isEmpty else {
                         throw DeepSeekError.missingAPIKey
@@ -133,6 +142,7 @@ struct DeepSeekService {
                     guard 200..<300 ~= httpResponse.statusCode else {
                         var bodyLines: [String] = []
                         for try await line in lines {
+                            try Task.checkCancellation()
                             bodyLines.append(line)
                         }
                         let body = bodyLines.joined(separator: "\n")
@@ -181,6 +191,8 @@ struct DeepSeekService {
                         throw DeepSeekError.emptyResult
                     }
                     continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -227,7 +239,7 @@ struct DeepSeekService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(requestBody)
-        request.timeoutInterval = 45
+        request.timeoutInterval = mode.timeoutInterval
         return request
     }
 
