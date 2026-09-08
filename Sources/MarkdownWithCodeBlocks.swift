@@ -84,6 +84,8 @@ final class MarkdownWithCodeBlocksView: NSView {
 }
 
 final class AutoHeightTextView: NSTextView {
+    private var lastMeasuredWidth: CGFloat = 0
+
     init() {
         let storage = NSTextStorage()
         let layout = NSLayoutManager()
@@ -96,6 +98,7 @@ final class AutoHeightTextView: NSTextView {
         storage.addLayoutManager(layout)
         super.init(frame: .zero, textContainer: container)
         translatesAutoresizingMaskIntoConstraints = false
+        appearance = AppTheme.windowAppearance
         isEditable = false
         isSelectable = true
         drawsBackground = false
@@ -115,7 +118,18 @@ final class AutoHeightTextView: NSTextView {
         guard let textContainer, let layoutManager else {
             return NSSize(width: NSView.noIntrinsicMetric, height: 20)
         }
-        let availableWidth = max(bounds.width, 1)
+
+        // Auto Layout asks for intrinsic size before NSStackView has assigned the
+        // final width. Measuring at width=1 wraps every glyph onto its own line and
+        // can create a several-thousand-point phantom height. Return a compact
+        // provisional height until a real width is available; setFrameSize/layout
+        // invalidates us as soon as the actual width arrives.
+        let availableWidth = bounds.width
+        guard availableWidth > 2 else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: 18)
+        }
+
+        lastMeasuredWidth = availableWidth
         textContainer.containerSize = NSSize(
             width: availableWidth,
             height: CGFloat.greatestFiniteMagnitude
@@ -128,55 +142,96 @@ final class AutoHeightTextView: NSTextView {
         )
     }
 
+    override func layout() {
+        super.layout()
+        let width = bounds.width
+        if width > 2, abs(width - lastMeasuredWidth) > 0.5 {
+            invalidateIntrinsicContentSize()
+        }
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = abs(frame.width - newSize.width) > 0.5
         super.setFrameSize(newSize)
-        if widthChanged {
+        if widthChanged, newSize.width > 2 {
             invalidateIntrinsicContentSize()
         }
     }
 }
 
-private final class CodeBlockView: NSView {
+private final class CodeBlockView: RoundedSurfaceView {
+    private let scrollView = NSScrollView()
+    private let codeTextView = NSTextView()
+    private let contentWidth: CGFloat
+    private let contentHeight: CGFloat
+
     init(code: String) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        applyContinuousCornerRadius(8, background: NSColor(hex: 0x1E1E2E))
-        layer?.borderWidth = 0.75
-        layer?.borderColor = NSColor(hex: 0x333348).cgColor
+        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let lines = code.components(separatedBy: .newlines)
+        let lineCount = max(1, lines.count)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let longestLineWidth = lines
+            .map { ceil(($0 as NSString).size(withAttributes: attributes).width) }
+            .max() ?? 0
+        self.contentWidth = max(80, longestLineWidth + 24)
+        self.contentHeight = max(42, CGFloat(lineCount) * 18 + 20)
 
-        let scroll = NSScrollView()
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.drawsBackground = false
-        scroll.hasHorizontalScroller = true
-        scroll.hasVerticalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.borderType = .noBorder
+        super.init(
+            cornerRadius: 8,
+            backgroundColor: NSColor(hex: 0x1E1E2E),
+            borderColor: NSColor(hex: 0x333348),
+            borderWidth: 0.75
+        )
 
-        let text = NSTextView()
-        text.isEditable = false
-        text.isSelectable = true
-        text.drawsBackground = false
-        text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        text.textColor = NSColor(hex: 0xE0E0E0)
-        text.string = code
-        text.textContainerInset = NSSize(width: 10, height: 9)
-        text.isHorizontallyResizable = true
-        text.isVerticallyResizable = false
-        text.textContainer?.widthTracksTextView = false
-        text.textContainer?.containerSize = NSSize(
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.appearance = AppTheme.windowAppearance
+        scrollView.drawsBackground = false
+        scrollView.hasHorizontalScroller = true
+        scrollView.hasVerticalScroller = contentHeight > 240
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        codeTextView.appearance = AppTheme.windowAppearance
+        codeTextView.isEditable = false
+        codeTextView.isSelectable = true
+        codeTextView.drawsBackground = false
+        codeTextView.font = font
+        codeTextView.textColor = NSColor(hex: 0xE0E0E0)
+        codeTextView.string = code
+        codeTextView.textContainerInset = NSSize(width: 10, height: 9)
+        codeTextView.isHorizontallyResizable = true
+        codeTextView.isVerticallyResizable = true
+        codeTextView.textContainer?.widthTracksTextView = false
+        codeTextView.textContainer?.heightTracksTextView = false
+        codeTextView.textContainer?.containerSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        scroll.documentView = text
+        codeTextView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: contentWidth,
+            height: contentHeight
+        )
+        scrollView.documentView = codeTextView
 
-        addSubview(scroll)
-        scroll.pinEdges(to: self)
-        let lineCount = max(1, code.components(separatedBy: .newlines).count)
-        heightAnchor.constraint(equalToConstant: min(240, max(42, CGFloat(lineCount) * 18 + 20))).isActive = true
+        addSubview(scrollView)
+        scrollView.pinEdges(to: self)
+        heightAnchor.constraint(equalToConstant: min(240, contentHeight)).isActive = true
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        let viewport = scrollView.contentSize
+        codeTextView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: max(viewport.width, contentWidth),
+            height: max(viewport.height, contentHeight)
+        )
     }
 }
