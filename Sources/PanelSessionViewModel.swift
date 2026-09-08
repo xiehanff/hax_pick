@@ -35,10 +35,43 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     var currentAction: AiToolAction? { aiSession.currentAction }
-    var conversationMessages: [AiMessage] { aiSession.visibleMessages }
+
+    var streamingAssistantID: UUID? {
+        if let published = aiSession.streamingAssistantID {
+            return published
+        }
+        guard aiSession.isLoading else { return nil }
+        // AiAgentSession appends the assistant draft before the transport starts.
+        // Use that stable draft ID even before the first token so AppKit can show
+        // a real loading/reasoning surface immediately instead of a detached row.
+        return aiSession.visibleMessages.last(where: { $0.role == .assistant })?.id
+    }
+
+    var conversationMessages: [AiMessage] {
+        let visible = aiSession.visibleMessages
+        guard aiSession.isLoading,
+              let streamingAssistantID,
+              currentAction == .deepDive || currentAction == .explain else {
+            return visible
+        }
+
+        return visible.map { message in
+            guard message.id == streamingAssistantID,
+                  message.role == .assistant else { return message }
+            return AiMessage(
+                id: message.id,
+                role: message.role,
+                content: message.content,
+                reasoning: message.reasoning,
+                followUpSuggestions: message.followUpSuggestions,
+                isVisible: message.isVisible,
+                expectsReasoning: true
+            )
+        }
+    }
+
     var lastAssistantContent: String? { aiSession.lastAssistantContent }
     var suggestions: [String] { aiSession.lastAssistantSuggestions }
-    var streamingAssistantID: UUID? { aiSession.streamingAssistantID }
     var isLoading: Bool { aiSession.isLoading }
     var errorMessage: String? { aiSession.errorMessage }
     var didStop: Bool { aiSession.didStop }
