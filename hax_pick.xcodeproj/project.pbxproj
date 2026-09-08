@@ -3,11 +3,10 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 46;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1422754838DC4EDC9402CB3A /* Copy AppIcon */ = {isa = PBXBuildFile; fileRef = 3C2AD5A7731D4A6E9AF441A3 /* Copy AppIcon */; };
 		04D21BBE894B280F9B0FAEAE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75DB5EB782A5E2EDCE08AD13 /* AppDelegate.swift */; };
 		07FEAB7A1687BCDB6364BC28 /* AccessibilityTextService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19B033F4FE85DBDBF4C5ECEC /* AccessibilityTextService.swift */; };
 		1ADDDF52F474EEC3D875A8F5 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488C96139802ED625DDC07B4 /* AppState.swift */; };
@@ -19,11 +18,10 @@
 		9779A4F7D84B4E54B8B8BBE1 /* MenuBarContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9779A4F7D84B4E54B8B8BBE0 /* MenuBarContentView.swift */; };
 		9779A4F7D84B4E54B8B8BBE3 /* PermissionGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9779A4F7D84B4E54B8B8BBE2 /* PermissionGuideView.swift */; };
 		9779A4F7D84B4E54B8B8BBE5 /* PermissionGuideWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9779A4F7D84B4E54B8B8BBE4 /* PermissionGuideWindowController.swift */; };
-		A2F4D6A11B6B4C33A5F7D8E1 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F4D6A01B6B4C33A5F7D8E1 /* Theme.swift */; };
 		9CEF5243E522960A65A99C65 /* FloatingToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD753ED6486BAD2CB04E7DEC /* FloatingToolbarView.swift */; };
-		AEACF2F1990DE0E055F0B81A /* ToolbarPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6C65ED168E28DCDF7315E2 /* ToolbarPanelController.swift */; };
-		ED30EBA5963281F2E4F8058A /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */; };
 		A1B2C3D4E5F6A7B8C9D0E1F2 /* PanelSessionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F3 /* PanelSessionViewModel.swift */; };
+		A2F4D6A11B6B4C33A5F7D8E1 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F4D6A01B6B4C33A5F7D8E1 /* Theme.swift */; };
+		AEACF2F1990DE0E055F0B81A /* ToolbarPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6C65ED168E28DCDF7315E2 /* ToolbarPanelController.swift */; };
 		B1B2C3D4E5F6A7B8C9D0E1F2 /* MarkdownWithCodeBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6A7B8C9D0E1F3 /* MarkdownWithCodeBlocks.swift */; };
 		D00100000000000000000001 /* AiMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00100000000000000000001 /* AiMessage.swift */; };
 		D00200000000000000000001 /* AiToolAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00200000000000000000001 /* AiToolAction.swift */; };
@@ -32,6 +30,7 @@
 		D00500000000000000000001 /* AiMessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00500000000000000000001 /* AiMessageBubble.swift */; };
 		D00600000000000000000001 /* AiChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00600000000000000000001 /* AiChatInputBar.swift */; };
 		D00700000000000000000001 /* ResultPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00700000000000000000001 /* ResultPanelView.swift */; };
+		ED30EBA5963281F2E4F8058A /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */; };
 		F10000000000000000000001 /* HaxIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* HaxIcon.swift */; };
 		F10100000000000000000001 /* HaxIcons in Resources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000002 /* HaxIcons */; };
 		F20000000000000000000001 /* CDMarkdownKit in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000002 /* CDMarkdownKit */; };
@@ -39,24 +38,23 @@
 
 /* Begin PBXFileReference section */
 		19B033F4FE85DBDBF4C5ECEC /* AccessibilityTextService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AccessibilityTextService.swift; path = Sources/AccessibilityTextService.swift; sourceTree = "<group>"; };
+		2B7E8E6F3A66451D9B5B3C00 /* AppBrandIcon.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppBrandIcon.swift; path = Sources/AppBrandIcon.swift; sourceTree = "<group>"; };
 		33AA1DE71F814675DE173FE5 /* ClipboardSelectionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ClipboardSelectionService.swift; path = Sources/ClipboardSelectionService.swift; sourceTree = "<group>"; };
 		3883879D2FB44B548CFA1F4B /* DeepSeekService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DeepSeekService.swift; path = Sources/DeepSeekService.swift; sourceTree = "<group>"; };
 		488C96139802ED625DDC07B4 /* AppState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppState.swift; path = Sources/AppState.swift; sourceTree = "<group>"; };
-		2B7E8E6F3A66451D9B5B3C00 /* AppBrandIcon.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppBrandIcon.swift; path = Sources/AppBrandIcon.swift; sourceTree = "<group>"; };
 		53F0B87F8EAA840A1A6E7D40 /* hax_pick.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = hax_pick.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		75DB5EB782A5E2EDCE08AD13 /* AppDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Sources/AppDelegate.swift; sourceTree = "<group>"; };
 		8F298225458150CC78EE52F0 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = hax_pick/Info.plist; sourceTree = "<group>"; };
-		A063AE0455F4A9030F8B692B /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
-		A2F4D6A01B6B4C33A5F7D8E1 /* Theme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Theme.swift; path = Sources/Theme.swift; sourceTree = "<group>"; };
-		BD6C65ED168E28DCDF7315E2 /* ToolbarPanelController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ToolbarPanelController.swift; path = Sources/ToolbarPanelController.swift; sourceTree = "<group>"; };
-		CD753ED6486BAD2CB04E7DEC /* FloatingToolbarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FloatingToolbarView.swift; path = Sources/FloatingToolbarView.swift; sourceTree = "<group>"; };
-		CFE29E9AF6DE0BFBEC1D19C8 /* HaxPickApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HaxPickApp.swift; path = Sources/HaxPickApp.swift; sourceTree = "<group>"; };
-		FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SelectionMonitor.swift; path = Sources/SelectionMonitor.swift; sourceTree = "<group>"; };
 		9779A4F7D84B4E54B8B8BBE0 /* MenuBarContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MenuBarContentView.swift; path = Sources/MenuBarContentView.swift; sourceTree = "<group>"; };
 		9779A4F7D84B4E54B8B8BBE2 /* PermissionGuideView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PermissionGuideView.swift; path = Sources/PermissionGuideView.swift; sourceTree = "<group>"; };
 		9779A4F7D84B4E54B8B8BBE4 /* PermissionGuideWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PermissionGuideWindowController.swift; path = Sources/PermissionGuideWindowController.swift; sourceTree = "<group>"; };
+		A063AE0455F4A9030F8B692B /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		A1B2C3D4E5F6A7B8C9D0E1F3 /* PanelSessionViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PanelSessionViewModel.swift; path = Sources/PanelSessionViewModel.swift; sourceTree = "<group>"; };
+		A2F4D6A01B6B4C33A5F7D8E1 /* Theme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Theme.swift; path = Sources/Theme.swift; sourceTree = "<group>"; };
 		B1B2C3D4E5F6A7B8C9D0E1F3 /* MarkdownWithCodeBlocks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MarkdownWithCodeBlocks.swift; path = Sources/MarkdownWithCodeBlocks.swift; sourceTree = "<group>"; };
+		BD6C65ED168E28DCDF7315E2 /* ToolbarPanelController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ToolbarPanelController.swift; path = Sources/ToolbarPanelController.swift; sourceTree = "<group>"; };
+		CD753ED6486BAD2CB04E7DEC /* FloatingToolbarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FloatingToolbarView.swift; path = Sources/FloatingToolbarView.swift; sourceTree = "<group>"; };
+		CFE29E9AF6DE0BFBEC1D19C8 /* HaxPickApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HaxPickApp.swift; path = Sources/HaxPickApp.swift; sourceTree = "<group>"; };
 		E00100000000000000000001 /* AiMessage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiMessage.swift; path = Sources/AiMessage.swift; sourceTree = "<group>"; };
 		E00200000000000000000001 /* AiToolAction.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiToolAction.swift; path = Sources/AiToolAction.swift; sourceTree = "<group>"; };
 		E00300000000000000000001 /* AiPrompts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiPrompts.swift; path = Sources/AiPrompts.swift; sourceTree = "<group>"; };
@@ -66,6 +64,7 @@
 		E00700000000000000000001 /* ResultPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ResultPanelView.swift; path = Sources/ResultPanelView.swift; sourceTree = "<group>"; };
 		F10000000000000000000002 /* HaxIcon.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HaxIcon.swift; path = Sources/HaxIcon.swift; sourceTree = "<group>"; };
 		F10100000000000000000002 /* HaxIcons */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = HaxIcons; path = Sources/Resources/HaxIcons; sourceTree = "<group>"; };
+		FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SelectionMonitor.swift; path = Sources/SelectionMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -156,6 +155,7 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
 /* Begin PBXNativeTarget section */
 		7A9EF46E6729A9B1A0E5C343 /* hax_pick */ = {
 			isa = PBXNativeTarget;
@@ -196,11 +196,9 @@
 				Base,
 			);
 			mainGroup = F5C1051224EEDF073ED734D4;
-			minimizedProjectReferenceProxies = 0;
 			packageReferences = (
 				F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */,
 			);
-			preferredProjectObjectVersion = 77;
 			productRefGroup = 2CF3D2E3E3BE55A3B52AB784 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -271,25 +269,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/chrisdhaan/CDMarkdownKit.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 5.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		F20000000000000000000002 /* CDMarkdownKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */;
-			productName = CDMarkdownKit;
-		};
-/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		45CEBE4039440F7B0FD68922 /* Debug */ = {
@@ -432,12 +411,16 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = hax_pick/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hax.haxpick;
 				SDKROOT = macosx;
@@ -451,17 +434,23 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = YES;
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = hax_pick/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hax.haxpick;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.9;
@@ -490,6 +479,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/chrisdhaan/CDMarkdownKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F20000000000000000000002 /* CDMarkdownKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */;
+			productName = CDMarkdownKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4C3A510158ADE00C5EFB784A /* Project object */;
 }
