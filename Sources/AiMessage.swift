@@ -13,6 +13,10 @@ struct AiMessage: Identifiable, Equatable {
     let reasoning: String
     let followUpSuggestions: [String]
     let isVisible: Bool
+    /// Presentation-only hint used while an assistant draft is streaming. It lets
+    /// the AppKit UI render the reasoning disclosure immediately for modes that
+    /// are expected to think, instead of waiting for the first reasoning token.
+    let expectsReasoning: Bool
 
     init(
         id: UUID = UUID(),
@@ -20,7 +24,8 @@ struct AiMessage: Identifiable, Equatable {
         content: String,
         reasoning: String = "",
         followUpSuggestions: [String] = [],
-        isVisible: Bool = true
+        isVisible: Bool = true,
+        expectsReasoning: Bool = false
     ) {
         self.id = id
         self.role = role
@@ -28,6 +33,7 @@ struct AiMessage: Identifiable, Equatable {
         self.reasoning = reasoning
         self.followUpSuggestions = followUpSuggestions
         self.isVisible = isVisible
+        self.expectsReasoning = expectsReasoning
     }
 }
 
