@@ -160,7 +160,7 @@ final class PanelSessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.conversationMessages.last?.content, "这是回答。")
     }
 
-    func testStreamingPresentationDefersRebuildsWhileReadingHistory() async throws {
+    func testStreamingPresentationForwardsEveryPublishedSnapshot() async throws {
         let responder = DeferredPanelStreamResponder()
         let session = AiAgentSession(
             stream: { messages in responder.stream(messages) },
@@ -180,7 +180,6 @@ final class PanelSessionViewModelTests: XCTestCase {
             forwardedUpdates += 1
         }
 
-        viewModel.pauseStreamingPresentation()
         let baseline = forwardedUpdates
 
         responder.yield("B")
@@ -188,10 +187,11 @@ final class PanelSessionViewModelTests: XCTestCase {
         try await waitUntil { viewModel.lastAssistantContent == "ABC" }
         await Task.yield()
 
-        XCTAssertEqual(forwardedUpdates, baseline)
-
-        viewModel.resumeStreamingPresentation()
-        XCTAssertGreaterThan(forwardedUpdates, baseline)
+        XCTAssertGreaterThan(
+            forwardedUpdates,
+            baseline,
+            "阅读历史时仍应持续渲染流式快照，避免回到底部时一次性补齐闪烁"
+        )
 
         responder.finish()
         try await waitUntil { !viewModel.isLoading }

@@ -57,14 +57,6 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         wantsLayer = true
         layer?.backgroundColor = NSColor.white.withAlphaComponent(0.96).cgColor
 
-        let divider = SoftDividerView()
-        addSubview(divider)
-        NSLayoutConstraint.activate([
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            divider.topAnchor.constraint(equalTo: topAnchor),
-        ])
-
         let card = NSView()
         card.translatesAutoresizingMaskIntoConstraints = false
         card.appearance = AppTheme.windowAppearance
@@ -75,7 +67,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         NSLayoutConstraint.activate([
             card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            card.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 9),
+            card.topAnchor.constraint(equalTo: topAnchor, constant: 9),
             card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -9),
         ])
 

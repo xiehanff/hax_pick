@@ -33,7 +33,6 @@ final class ResultPanelView: NSView {
     private var isDocumentLayoutScheduled = false
     private var lastScrollViewportSize = NSSize.zero
     private var lastObservedOffsetY: CGFloat = 0
-    private var boundsObserver: NSObjectProtocol?
 
     init(viewModel: PanelSessionViewModel) {
         self.viewModel = viewModel
@@ -51,12 +50,6 @@ final class ResultPanelView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        if let boundsObserver {
-            NotificationCenter.default.removeObserver(boundsObserver)
-        }
     }
 
     override func layout() {
@@ -81,8 +74,6 @@ final class ResultPanelView: NSView {
         layer?.borderColor = NSColor.white.withAlphaComponent(0.78).cgColor
 
         let header = makeHeader()
-        let divider = SoftDividerView()
-
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
@@ -105,7 +96,6 @@ final class ResultPanelView: NSView {
         returnToLatestButton.isHidden = true
 
         addSubview(header)
-        addSubview(divider)
         addSubview(scrollView)
         addSubview(inputBar)
         addSubview(returnToLatestButton)
@@ -116,17 +106,13 @@ final class ResultPanelView: NSView {
             header.topAnchor.constraint(equalTo: topAnchor, constant: 11),
             header.heightAnchor.constraint(equalToConstant: 38),
 
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            divider.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
-
             inputBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             inputBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             inputBar.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 11),
             scrollView.bottomAnchor.constraint(equalTo: inputBar.topAnchor),
 
             returnToLatestButton.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -12),
@@ -169,14 +155,19 @@ final class ResultPanelView: NSView {
 
     private func installScrollObservation() {
         scrollView.contentView.postsBoundsChangedNotifications = true
-        boundsObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.clipBoundsDidChange()
-            }
+        // Bounds notifications are synchronous. Hopping into a Task loses
+        // isUpdatingDocumentLayout/isProgrammaticScroll and the actual offset
+        // that caused the notification, misclassifying layout as user input.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(clipBoundsDidChange),
+            name: NSView.boundsDidChangeNotification, object: scrollView.contentView
+        )
+        scrollView.onUserScrollPositionChanged = { [weak self] in
+            self?.userScrollPositionDidChange()
+        }
+        scrollView.onUserScrollEnded = { [weak self] in
+            guard let self, self.followTailState.isFollowingTail else { return }
+            self.scheduleDocumentLayout()
         }
         lastObservedOffsetY = scrollView.contentView.bounds.origin.y
     }
@@ -186,7 +177,6 @@ final class ResultPanelView: NSView {
         if requestRevision != lastRequestRevision {
             lastRequestRevision = requestRevision
             followTailState.requestDidStart()
-            viewModel.resumeStreamingPresentation()
         }
 
         refreshHeader()
@@ -294,7 +284,16 @@ final class ResultPanelView: NSView {
     }
 
     private func messageLayoutDidChange() {
-        scheduleDocumentLayout()
+        // Markdown 文本替换与 documentView 增高必须在同一次
+        // Core Animation 提交中完成。延迟到下一轮 main queue 会先显示
+        // “新文本 + 旧文档高度”，底部被裁剪一帧后再跳到新尾部。
+        guard !isUpdatingDocumentLayout,
+              scrollView.bounds.width > 0,
+              scrollView.bounds.height > 0 else {
+            scheduleDocumentLayout()
+            return
+        }
+        updateDocumentLayout()
     }
 
     private func scheduleDocumentLayout() {
@@ -303,16 +302,21 @@ final class ResultPanelView: NSView {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.isDocumentLayoutScheduled = false
-            self.updateDocumentLayout(preserveUserOffset: !self.followTailState.isFollowingTail)
-            if self.followTailState.isFollowingTail {
-                self.scrollToBottom()
-            }
+            self.updateDocumentLayout()
         }
     }
 
-    private func updateDocumentLayout(preserveUserOffset: Bool) {
+    private func updateDocumentLayout() {
         guard scrollView.bounds.width > 0, scrollView.bounds.height > 0 else { return }
         let oldOrigin = scrollView.contentView.bounds.origin
+        // 文档高度变化与滚动位置校正在同一个事务内提交，
+        // 避免流式更新露出“先变高、后跟尾”的中间帧。
+        CATransaction.begin()
+        CATransaction.setValue(true, forKey: kCATransactionDisableActions)
+        defer {
+            isUpdatingDocumentLayout = false
+            CATransaction.commit()
+        }
         isUpdatingDocumentLayout = true
         documentView.updateLayout(
             viewportWidth: scrollView.contentSize.width,
@@ -320,25 +324,25 @@ final class ResultPanelView: NSView {
         )
         scrollView.layoutSubtreeIfNeeded()
 
-        if preserveUserOffset {
-            let maxY = maxOffsetY
-            let clamped = min(max(0, oldOrigin.y), maxY)
-            if abs(scrollView.contentView.bounds.origin.y - clamped) > 0.5 {
-                isProgrammaticScroll = true
-                scrollView.contentView.scroll(to: NSPoint(x: 0, y: clamped))
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-                isProgrammaticScroll = false
-            }
-            lastObservedOffsetY = clamped
+        let maxY = maxOffsetY
+        let targetY = followTailState.isFollowingTail && !scrollView.isUserScrolling
+            ? maxY
+            : min(max(0, oldOrigin.y), maxY)
+        if abs(scrollView.contentView.bounds.origin.y - targetY) > 0.5 {
+            isProgrammaticScroll = true
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            isProgrammaticScroll = false
         }
-        isUpdatingDocumentLayout = false
+        lastObservedOffsetY = targetY
+        updateReturnToLatestVisibility()
     }
 
     private var maxOffsetY: CGFloat {
         max(0, documentView.frame.height - scrollView.contentSize.height)
     }
 
-    private func clipBoundsDidChange() {
+    @objc private func clipBoundsDidChange() {
         let rawY = scrollView.contentView.bounds.origin.y
         let maxY = maxOffsetY
         let newY = min(max(0, rawY), maxY)
@@ -351,31 +355,20 @@ final class ResultPanelView: NSView {
             return
         }
 
-        let extentAfter = max(0, maxY - newY)
+        userScrollPositionDidChange()
+    }
+
+    private func userScrollPositionDidChange() {
+        guard !isUpdatingDocumentLayout, !isProgrammaticScroll else { return }
+        let extentAfter = max(0, maxOffsetY - scrollView.contentView.bounds.origin.y)
         switch followTailState.userScrollPositionDidChange(extentAfter: extentAfter) {
         case .paused:
-            viewModel.pauseStreamingPresentation()
+            break
         case .resumed:
-            viewModel.resumeStreamingPresentation()
-            scheduleDocumentLayout()
+            if !scrollView.isUserScrolling { scheduleDocumentLayout() }
         case .none:
             break
         }
-        updateReturnToLatestVisibility()
-    }
-
-    private func scrollToBottom() {
-        guard followTailState.isFollowingTail else { return }
-        let y = maxOffsetY
-        let currentY = min(max(0, scrollView.contentView.bounds.origin.y), y)
-
-        if abs(currentY - y) > 0.5 {
-            isProgrammaticScroll = true
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-            isProgrammaticScroll = false
-        }
-        lastObservedOffsetY = y
         updateReturnToLatestVisibility()
     }
 
@@ -385,7 +378,6 @@ final class ResultPanelView: NSView {
 
     @objc private func returnToLatest() {
         followTailState.resume()
-        viewModel.resumeStreamingPresentation()
         scheduleDocumentLayout()
         updateReturnToLatestVisibility()
     }
@@ -404,7 +396,9 @@ enum ChatFollowTailTransition: Equatable {
 struct ChatFollowTailState: Equatable {
     private(set) var isFollowingTail = true
 
-    static let tailTolerance: CGFloat = 32
+    // Do not snap the last few lines away merely because the user is near the
+    // bottom. One point only absorbs fractional AppKit scroll coordinates.
+    static let tailTolerance: CGFloat = 1
 
     mutating func requestDidStart() {
         isFollowingTail = true
@@ -431,7 +425,80 @@ struct ChatFollowTailState: Equatable {
     }
 }
 
-private final class ConversationScrollView: NSScrollView {}
+/// Streaming changes the document on the main thread. Keep scrolling on that
+/// same geometry instead of letting responsive scrolling use a pre-rendered
+/// surface with an older document height at the top/bottom boundary.
+private final class ConversationScrollView: NSScrollView {
+    override class var isCompatibleWithResponsiveScrolling: Bool { false }
+
+    private(set) var isUserScrolling = false
+    var onUserScrollPositionChanged: (() -> Void)?
+    var onUserScrollEnded: (() -> Void)?
+    private var isLiveScrollSession = false
+    private var scrollEndTimer: Timer?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(liveScrollBegan),
+            name: NSScrollView.willStartLiveScrollNotification, object: self)
+        center.addObserver(self, selector: #selector(liveScrollMoved),
+            name: NSScrollView.didLiveScrollNotification, object: self)
+        center.addObserver(self, selector: #selector(liveScrollEnded),
+            name: NSScrollView.didEndLiveScrollNotification, object: self)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        // Claim ownership BEFORE AppKit changes bounds, including legacy
+        // wheels and events at a boundary that produce no bounds notification.
+        beginUserScroll()
+        super.scrollWheel(with: event)
+        onUserScrollPositionChanged?()
+        if !isLiveScrollSession { scheduleScrollEnd() }
+    }
+
+    private func beginUserScroll() {
+        scrollEndTimer?.invalidate()
+        scrollEndTimer = nil
+        isUserScrolling = true
+    }
+
+    @objc private func liveScrollBegan() {
+        isLiveScrollSession = true
+        beginUserScroll()
+    }
+
+    @objc private func liveScrollMoved() {
+        beginUserScroll()
+        onUserScrollPositionChanged?()
+        if !isLiveScrollSession { scheduleScrollEnd() }
+    }
+
+    @objc private func liveScrollEnded() {
+        isLiveScrollSession = false
+        scheduleScrollEnd()
+    }
+
+    private func scheduleScrollEnd() {
+        scrollEndTimer?.invalidate()
+        // Bridge finger-up -> momentum-start; also group legacy wheel ticks.
+        // Use common modes so this works during AppKit's event tracking.
+        let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isUserScrolling = false
+                self.scrollEndTimer = nil
+                self.onUserScrollEnded?()
+            }
+        }
+        scrollEndTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+}
 
 private final class ConversationDocumentView: NSView {
     private let stack = NSStackView()
@@ -684,4 +751,3 @@ private final class ClosureButton: NSButton {
         handler()
     }
 }
-

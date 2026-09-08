@@ -103,7 +103,7 @@ AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动�
 - 结果侧栏和托盘菜单外壳由 SwiftUI 连续圆角的独立合成层裁切，窗口阴影交由 `NSPanel` 绘制，避免透明窗口边界裁断阴影后产生圆角锯齿。
 - 托盘回归系统样式：`MenuBarExtra(.menu)` 仅含「设置…」「退出」；设置项（辅助功能权限、模型、DeepSeek API Key、版本号）在系统样式的 `Window`（grouped Form）中配置，不使用自定义玻璃视觉。
 - 工具栏与结果侧栏共用同一套玻璃视觉：`HaxGlassSurface(style: .light)` 玻璃外壳（Capsule 全圆角）+ `AppTheme.panelContent`（72% 白色微透明）内容层 + 0.78 白色 0.75pt 内描边，随结果侧栏的玻璃改版同步演进。左侧拖动点阵为黑色，复制、翻译、解释均显示黑色文字；“深度理解”“润色”以黑色禁用态展示，等待后续实现。
-- 分区线使用带水平内边距的 0.5pt 弱分隔线，不与玻璃或内容层边缘相接。
+- 对话窗头部、内容区与输入区之间不使用横向分割线，仅通过留白和输入卡片边界区分层级。
 - 长文本内容区使用白色磨砂微透明背景；继续提问输入框保持更高不透明度，避免输入控件丢失边界和对比度。
 
 项目是原生 SwiftUI / AppKit 应用，Flutter 的 `liquid_glass_widgets` 无法直接作为 Swift Package 接入；结果侧栏、菜单栏和工具栏统一使用系统玻璃兼容层，前景文字由 SwiftUI 绘制。
@@ -231,7 +231,7 @@ MarkdownWithCodeBlocks（Down / cmark 渲染）
 
 `AiAgentSession.streamingAssistantID` 只有在当前请求已经真正收到 partial content 时才有值。因此 regenerate 刚开始、尚未收到新 chunk 时，旧 assistant 仍保持已提交 Markdown；不会因为单纯 `isLoading == true` 就发生视觉降级。
 
-40ms draft publish 复用同一个 Markdown 渲染视图；解析为 latest-wins，过快到达的快照会被合并，正文先以纯文本回退显示、解析完成后原地替换为格式化结果。Markdown 库为 Down（cmark 0.29，CommonMark 合规；以本地包 `LocalPackages/Down` 引入，本地修补了 `DownLayoutManager` 的代码块背景绘制：整块 6pt 圆角卡片、两侧 8pt 留边，经 `HaxMarkdownStyler`（`DownStyler` 子类）定制字体与配色，经 `DownTextView` / `DownLayoutManager` 绘制代码块背景与引用条）；行内代码为深色胶囊配色，代码块语法高亮由 Splash 叠加（覆写 `style(codeBlock:)`，仅着色不改文本）；此前使用的 CDMarkdownKit 因 inline-code 对中英文相邻场景的解析缺陷已移除。
+40ms draft publish 复用同一个 Markdown 渲染视图；解析为 latest-wins，过快到达的快照会被合并，正文先以纯文本回退显示、解析完成后原地替换为格式化结果。更新 `NSTextStorage` 时保留完整且未变的段落，只替换当前可能被后续 Markdown 定界符改写的段落及其后缀，避免每个快照使整篇 glyph/layout 缓存失效。Markdown 库为 Down（cmark 0.29，CommonMark 合规；以本地包 `LocalPackages/Down` 引入，本地修补了 `DownLayoutManager` 的代码块背景绘制：纯黑背景、整块 6pt 圆角卡片、两侧 8pt 留边，经 `HaxMarkdownStyler`（`DownStyler` 子类）定制字体与配色，经 `DownTextView` / `DownLayoutManager` 绘制代码块背景与引用条）；行内代码为紫色高亮文字，代码块语法高亮由 Splash 叠加（覆写 `style(codeBlock:)`，仅着色不改文本）；此前使用的 CDMarkdownKit 因 inline-code 对中英文相邻场景的解析缺陷已移除。
 
 请求结束时无论是否刚好命中节流窗口，都会执行最终 flush。
 
@@ -321,39 +321,19 @@ ResultPanelView
 └── AiChatInputBar
 ```
 
-默认跟尾流程：
+`ResultPanelView` 使用原生 `ConversationScrollView` / `ConversationDocumentView` 和轻量 `ChatFollowTailState` 管理位置：
 
-```text
-ScrollViewReader
-  ↓
-tail anchor
-  ↓
-message / streamed content / error / loading 状态变化
-  ↓
-scrollTo(tail, anchor: .bottom)
-```
+- 默认 / 新请求开始跟尾；用户离开底部超过 1pt 即暂停，显示「回到最新」，不再以 32pt 的“接近底部”阈值提前吸附。
+- `scrollWheel` 在交给 AppKit 前取得用户滚动控制权；同步监听 `willStartLiveScroll` / `didLiveScroll` / `didEndLiveScroll` 覆盖触控板、滚动条拖动和普通滚轮。在手势及惯性期间，流式内容继续渲染，但程序不得强制跟尾。
+- 手势结束后等待 120ms 静默间隔（main run loop common modes），桥接抬指与惯性开始以及普通滚轮事件间隙。根据最后一次用户滚动是否真的到达底部决定恢复跟尾；流式增长自身不改变此决定。
+- clip bounds 通知必须同步处理，禁止再包装为异步 Task。文档布局 / 程序定位期间的通知被就地过滤，避免延迟执行时失去来源标记、将程序滚动当成用户输入。
+- 对话滚动视图显式禁用 responsive scrolling，让滚动与流式文档尺寸更新使用同一主线程几何状态；Markdown 文本视图关闭 TextKit 自行纵向 resize，高度由 intrinsic size + Auto Layout 单一控制。
 
-但 `ResultPanelView` 现在同时维护轻量 `ChatFollowTailState`：
+follow-tail 状态只属于 View 层，不进入 `PanelSessionViewModel` / `AiAgentSession`；流式快照不因用户离开尾部而暂停 UI 转发，避免再次到底时一次性补齐。AppKit 回归测试在窗口托管的视图中覆盖正式输出、展开思考、反复到达两端、惯性衔接和普通滚轮，并记录每次 bounds 通知，而不仅检查最终位置；这些自动化检查不替代真实触控板的视觉验收。
 
-```text
-默认 / 新请求开始
-  ↓
-isFollowingTail = true
+流式 Markdown 应用后会同步重新测量 conversation document，并在同一次禁用隐式动画的 Core Animation 事务中同时提交 document 高度与尾部 offset。不得将这条路径延迟到下一轮 main queue，否则会暴露“新文本 + 旧文档高度”的裁剪中间帧。
 
-用户在结果区滚轮 / 触控板滚动 / 拖动交互
-  ↓
-isFollowingTail = false
-  ↓
-后续 streaming publish 不再 scrollTo
-  ↓
-显示「回到最新」
-
-点击「回到最新」
-  ↓
-恢复跟尾并立即到底部
-```
-
-程序化 `scrollTo` 不会触发 AppKit 用户事件 monitor，因此不会把自己误判成“用户手动滚动”。follow-tail 状态只属于 View 层，不进入 `AiAgentSession`。
+正式回答代码块背景为不透明 `#000000`。深度理解的 0.78 淡化只设置在正文前景色，Markdown 视图及祖先保持 alpha = 1，不可整层降低透明度（否则黑底会与浅色阅读层混成灰色）。
 
 ## NSPanel 生命周期
 

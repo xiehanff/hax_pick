@@ -21,10 +21,7 @@ final class PanelSessionViewModel: ObservableObject {
     private let makeSession: () -> AiAgentSession
     private let onClose: () -> Void
     private var agentObservation: AnyCancellable?
-    private var loadingObservation: AnyCancellable?
     private var isDismissed = false
-    private var isStreamingPresentationPaused = false
-    private var hasDeferredAgentUpdate = false
 
     init(service: DeepSeekService, onClose: @escaping () -> Void) {
         self.makeSession = { AiAgentSession(service: service) }
@@ -131,7 +128,6 @@ final class PanelSessionViewModel: ObservableObject {
     func reset(with text: String) {
         archiveActiveConversationIfNeeded()
         isDismissed = false
-        resetStreamingPresentationState()
         selectedText = text
         followUpInput = ""
         isOriginalExpanded = false
@@ -169,7 +165,6 @@ final class PanelSessionViewModel: ObservableObject {
         observeAgentSession()
         selectedText = archived.sourceText
         isDismissed = false
-        resetStreamingPresentationState()
         mode = .result
         onModeChanged?(.result)
         objectWillChange.send()
@@ -182,14 +177,12 @@ final class PanelSessionViewModel: ObservableObject {
             copyOriginalText()
             close()
         case .chat:
-            resetStreamingPresentationState()
             followUpInput = ""
             isOriginalExpanded = false
             mode = .result
             onModeChanged?(.result)
             aiSession.startFreeChat()
         default:
-            resumeStreamingPresentation()
             mode = .result
             onModeChanged?(.result)
             aiSession.runToolAction(action, sourceText: selectedText)
@@ -198,7 +191,6 @@ final class PanelSessionViewModel: ObservableObject {
 
     func retry() {
         guard !isDismissed else { return }
-        resumeStreamingPresentation()
         aiSession.retry()
     }
 
@@ -209,7 +201,6 @@ final class PanelSessionViewModel: ObservableObject {
 
     func startNewConversation() {
         guard !isDismissed else { return }
-        resetStreamingPresentationState()
         followUpInput = ""
         isOriginalExpanded = false
         aiSession.startFreeChat()
@@ -218,7 +209,6 @@ final class PanelSessionViewModel: ObservableObject {
     func submitFollowUp() {
         let text = followUpInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !isDismissed, !text.isEmpty else { return }
-        resumeStreamingPresentation()
         if aiSession.sendMessage(text) {
             followUpInput = ""
         }
@@ -226,22 +216,7 @@ final class PanelSessionViewModel: ObservableObject {
 
     func askSuggestion(_ suggestion: String) {
         guard !isDismissed else { return }
-        resumeStreamingPresentation()
         _ = aiSession.sendMessage(suggestion)
-    }
-
-    func pauseStreamingPresentation() {
-        guard aiSession.isLoading, !isStreamingPresentationPaused else { return }
-        isStreamingPresentationPaused = true
-        hasDeferredAgentUpdate = false
-    }
-
-    func resumeStreamingPresentation() {
-        guard isStreamingPresentationPaused else { return }
-        isStreamingPresentationPaused = false
-        guard hasDeferredAgentUpdate else { return }
-        hasDeferredAgentUpdate = false
-        objectWillChange.send()
     }
 
     func copyOriginalText() {
@@ -271,29 +246,9 @@ final class PanelSessionViewModel: ObservableObject {
         onClose()
     }
 
-    private func resetStreamingPresentationState() {
-        isStreamingPresentationPaused = false
-        hasDeferredAgentUpdate = false
-    }
-
     private func observeAgentSession() {
         agentObservation = aiSession.objectWillChange.sink { [weak self] _ in
-            guard let self else { return }
-            if self.isStreamingPresentationPaused {
-                self.hasDeferredAgentUpdate = true
-                return
-            }
-            self.objectWillChange.send()
+            self?.objectWillChange.send()
         }
-
-        loadingObservation = aiSession.$isLoading
-            .removeDuplicates()
-            .sink { [weak self] isLoading in
-                guard let self, !isLoading, self.isStreamingPresentationPaused else { return }
-                self.isStreamingPresentationPaused = false
-                guard self.hasDeferredAgentUpdate else { return }
-                self.hasDeferredAgentUpdate = false
-                self.objectWillChange.send()
-            }
     }
 }

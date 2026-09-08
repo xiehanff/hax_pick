@@ -31,8 +31,8 @@ final class FloatingToolbarView: NSView {
         // 气泡入口的可见性跟随归档状态,与 mode 切换解耦
         resumeChatButton?.isHidden = !viewModel.hasResumableConversation
         let mode = viewModel.mode
-        window?.invalidateCursorRects(for: self)
         guard force || currentMode != mode else { return }
+        window?.invalidateCursorRects(for: self)
         currentMode = mode
         surface?.removeFromSuperview()
 
@@ -61,18 +61,28 @@ final class FloatingToolbarView: NSView {
             toolbar.layer?.borderColor = NSColor.white.withAlphaComponent(0.78).cgColor
             glass.contentView.addSubview(toolbar)
             NSLayoutConstraint.activate([
-                toolbar.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: AppTheme.glassContentInset),
-                toolbar.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -AppTheme.glassContentInset),
-                toolbar.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: AppTheme.glassContentInset),
-                toolbar.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -AppTheme.glassContentInset),
+                toolbar.leadingAnchor.constraint(
+                    equalTo: glass.contentView.leadingAnchor, constant: AppTheme.glassContentInset),
+                toolbar.trailingAnchor.constraint(
+                    equalTo: glass.contentView.trailingAnchor, constant: -AppTheme.glassContentInset
+                ),
+                toolbar.topAnchor.constraint(
+                    equalTo: glass.contentView.topAnchor, constant: AppTheme.glassContentInset),
+                toolbar.bottomAnchor.constraint(
+                    equalTo: glass.contentView.bottomAnchor, constant: -AppTheme.glassContentInset),
             ])
         case .result:
             glass.contentView.addSubview(resultPanel)
             NSLayoutConstraint.activate([
-                resultPanel.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: AppTheme.glassContentInset),
-                resultPanel.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -AppTheme.glassContentInset),
-                resultPanel.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: AppTheme.glassContentInset),
-                resultPanel.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -AppTheme.glassContentInset),
+                resultPanel.leadingAnchor.constraint(
+                    equalTo: glass.contentView.leadingAnchor, constant: AppTheme.glassContentInset),
+                resultPanel.trailingAnchor.constraint(
+                    equalTo: glass.contentView.trailingAnchor, constant: -AppTheme.glassContentInset
+                ),
+                resultPanel.topAnchor.constraint(
+                    equalTo: glass.contentView.topAnchor, constant: AppTheme.glassContentInset),
+                resultPanel.bottomAnchor.constraint(
+                    equalTo: glass.contentView.bottomAnchor, constant: -AppTheme.glassContentInset),
             ])
         }
     }
@@ -90,7 +100,8 @@ final class FloatingToolbarView: NSView {
         container.addSubview(row)
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
-            row.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -10),
+            row.trailingAnchor.constraint(
+                lessThanOrEqualTo: container.trailingAnchor, constant: -10),
             row.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
 
@@ -118,7 +129,8 @@ final class FloatingToolbarView: NSView {
         polish.alphaValue = 0.34
         row.addArrangedSubview(polish)
 
-        let resume = ClosureIconButton(symbolName: "bubble.left", toolTip: "回到上一个对话") { [weak viewModel] in
+        let resume = ClosureIconButton(symbolName: "bubble.left", toolTip: "回到上一个对话") {
+            [weak viewModel] in
             viewModel?.resumeArchivedConversation()
         }
         resume.isHidden = !viewModel.hasResumableConversation
@@ -211,7 +223,8 @@ final class FloatingToolbarView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard viewModel.mode == .result, let window,
-              let edge = resizeEdge(at: convert(event.locationInWindow, from: nil)) else {
+            let edge = resizeEdge(at: convert(event.locationInWindow, from: nil))
+        else {
             super.mouseDown(with: event)
             return
         }
@@ -275,10 +288,17 @@ final class FloatingToolbarView: NSView {
             width = min(width, visibleFrame.width)
             height = min(height, visibleFrame.height)
 
-            window.setFrame(
-                NSRect(x: x, y: y, width: width, height: height),
-                display: true
-            )
+            // 取整 + 跳过无变化帧 + 拖拽中免同步重绘:亚像素 frame 逐帧
+            // 摆动与每事件强制 display 是窗口抖动的两个来源
+            let newFrame = NSRect(
+                x: x.rounded(),
+                y: y.rounded(),
+                width: width.rounded(),
+                height: height.rounded()
+            ).integral
+            guard newFrame != window.frame else { continue }
+
+            window.setFrame(newFrame, display: false)
         }
     }
 
@@ -291,7 +311,8 @@ final class FloatingToolbarView: NSView {
     }
 }
 
-private final class ToolbarActionButton: NSButton {    private let toolAction: AiToolAction
+private final class ToolbarActionButton: NSButton {
+    private let toolAction: AiToolAction
     private let handler: (AiToolAction) -> Void
 
     init(action: AiToolAction, handler: @escaping (AiToolAction) -> Void) {

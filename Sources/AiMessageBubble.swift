@@ -230,11 +230,13 @@ final class AiMessageBubble: NSView {
             }
         } else if let markdown = assistantMarkdownView,
                   assistantBodyView === markdown {
-            if contentChanged {
-                markdown.update(text: currentMessage.content)
-            }
             if opacityChanged {
-                markdown.alphaValue = assistantContentOpacity
+                // Opacity belongs to the prose palette, never the renderer:
+                // fading the view also composites black code cards into gray.
+                replaceAssistantBody(in: stack, with: makeAssistantMarkdownBody())
+                needsImmediateLayout = true
+            } else if contentChanged {
+                markdown.update(text: currentMessage.content)
             }
         } else {
             let body = makeAssistantMarkdownBody()
@@ -254,7 +256,6 @@ final class AiMessageBubble: NSView {
         }
         assistantBodyView = body
         assistantMarkdownView = body as? MarkdownWithCodeBlocksView
-        body.alphaValue = assistantContentOpacity
         stack.addArrangedSubview(body)
         body.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
@@ -262,11 +263,10 @@ final class AiMessageBubble: NSView {
     private func makeAssistantMarkdownBody() -> MarkdownWithCodeBlocksView {
         let body = MarkdownWithCodeBlocksView(
             text: currentMessage.content,
-            textColor: AppTheme.textPrimary,
+            textColor: AppTheme.textPrimary.withAlphaComponent(assistantContentOpacity),
             fontSize: 13,
             onLayoutChange: onLayoutChange
         )
-        body.alphaValue = assistantContentOpacity
         return body
     }
 }

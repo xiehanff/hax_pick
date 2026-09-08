@@ -34,7 +34,7 @@ final class ChatFollowTailStateTests: XCTestCase {
         XCTAssertFalse(state.isFollowingTail)
 
         XCTAssertEqual(
-            state.userScrollPositionDidChange(extentAfter: 12),
+            state.userScrollPositionDidChange(extentAfter: 0.5),
             .resumed
         )
         XCTAssertTrue(state.isFollowingTail)
@@ -44,7 +44,7 @@ final class ChatFollowTailStateTests: XCTestCase {
         var state = ChatFollowTailState()
 
         XCTAssertEqual(
-            state.userScrollPositionDidChange(extentAfter: 18),
+            state.userScrollPositionDidChange(extentAfter: 0.5),
             .none
         )
         XCTAssertTrue(state.isFollowingTail)
@@ -61,5 +61,13 @@ final class ChatFollowTailStateTests: XCTestCase {
             state.userScrollPositionDidChange(extentAfter: 0),
             .none
         )
+    }
+
+    func testNearBottomDoesNotSnapBackBeforeActuallyReachingTail() {
+        var state = ChatFollowTailState()
+        XCTAssertEqual(state.userScrollPositionDidChange(extentAfter: 12), .paused)
+        XCTAssertEqual(state.userScrollPositionDidChange(extentAfter: 2), .none)
+        XCTAssertFalse(state.isFollowingTail)
+        XCTAssertEqual(state.userScrollPositionDidChange(extentAfter: 0), .resumed)
     }
 }

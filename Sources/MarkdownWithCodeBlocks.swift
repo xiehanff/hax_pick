@@ -63,6 +63,7 @@ final class MarkdownWithCodeBlocksView: NSView {
     private var currentText = ""
     private var requestedRevision = 0
     private var renderTask: Task<Void, Never>?
+    private var hasAppliedRenderedSnapshot = false
 
     init(
         text: String,
@@ -140,7 +141,7 @@ final class MarkdownWithCodeBlocksView: NSView {
     }
 
     private func showFallback(_ text: String) {
-        markdownView.setAttributedString(
+        guard markdownView.setAttributedString(
             NSAttributedString(
                 string: text,
                 attributes: [
@@ -148,19 +149,30 @@ final class MarkdownWithCodeBlocksView: NSView {
                     .foregroundColor: textColor,
                 ]
             )
-        )
+        ) else { return }
         markdownView.invalidateIntrinsicContentSize()
     }
 
     private func apply(_ rendered: NSAttributedString) {
+        CATransaction.begin()
+        CATransaction.setValue(true, forKey: kCATransactionDisableActions)
+        defer { CATransaction.commit() }
+
         let oldSelection = markdownView.selectedRange()
-        markdownView.setAttributedString(rendered)
+        guard markdownView.setAttributedString(
+            rendered,
+            preservingStablePrefix: hasAppliedRenderedSnapshot
+        ) else { return }
+        hasAppliedRenderedSnapshot = true
 
         if oldSelection.location != NSNotFound {
             let length = markdownView.string.utf16.count
             let location = min(oldSelection.location, length)
             let selectedLength = min(oldSelection.length, max(0, length - location))
-            markdownView.setSelectedRange(NSRange(location: location, length: selectedLength))
+            let clampedSelection = NSRange(location: location, length: selectedLength)
+            if markdownView.selectedRange() != clampedSelection {
+                markdownView.setSelectedRange(clampedSelection)
+            }
         }
 
         markdownView.invalidateIntrinsicContentSize()
@@ -200,7 +212,7 @@ final class MarkdownWithCodeBlocksView: NSView {
             quoteStripe: AppTheme.border,
             thematicBreak: AppTheme.border,
             listItemPrefix: AppTheme.textSecondary,
-            codeBlockBackground: NSColor(hex: 0x1A1B1E)
+            codeBlockBackground: .black
         )
 
         return HaxMarkdownStyler(
@@ -284,10 +296,13 @@ final class AutoHeightMarkdownTextView: DownTextView {
         isEditable = false
         isSelectable = true
         isHorizontallyResizable = false
-        isVerticallyResizable = true
+        // Auto Layout owns the view's frame. TextKit must measure content, not
+        // resize this nested text view during a scroll/layout pass.
+        isVerticallyResizable = false
         textContainerInset = .zero
         textContainer?.lineFragmentPadding = 0
         textContainer?.widthTracksTextView = true
+        textContainer?.heightTracksTextView = false
         setContentHuggingPriority(.required, for: .vertical)
         setContentCompressionResistancePriority(.required, for: .vertical)
     }
@@ -298,20 +313,59 @@ final class AutoHeightMarkdownTextView: DownTextView {
 
     /// Replaces the text storage directly. Setting `string` would route through
     /// DownTextView.render(), but HaxPick parses via its own latest-wins loop.
-    func setAttributedString(_ attributedString: NSAttributedString) {
-        textStorage?.setAttributedString(attributedString)
-        harmonizeCodeBlockTailIndent()
+    @discardableResult
+    func setAttributedString(
+        _ attributedString: NSAttributedString,
+        preservingStablePrefix: Bool = true
+    ) -> Bool {
+        guard let storage = textStorage else { return false }
+
+        // Down 每次会返回整份 attributed string。流式输出中绝大多数
+        // 已排版前缀没有变化，如果每 40ms 整段 setAttributedString，
+        // NSLayoutManager 会丢弃全部 glyph/layout 缓存，可视区会短暂清空再重绘。
+        // 先把与宽度有关的代码段样式归一化，再只替换真正变化的后缀。
+        let normalized = NSMutableAttributedString(attributedString: attributedString)
+        harmonizeCodeBlockTailIndent(in: normalized)
+        let unchangedPrefixLength = preservingStablePrefix
+            ? stableTextPrefixLength(storage, normalized)
+            : 0
+        guard unchangedPrefixLength < storage.length ||
+                unchangedPrefixLength < normalized.length else {
+            return false
+        }
+
+        let oldSuffix = NSRange(
+            location: unchangedPrefixLength,
+            length: storage.length - unchangedPrefixLength
+        )
+        let newSuffix = normalized.attributedSubstring(
+            from: NSRange(
+                location: unchangedPrefixLength,
+                length: normalized.length - unchangedPrefixLength
+            )
+        )
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: oldSuffix, with: newSuffix)
+        storage.endEditing()
+        return true
     }
 
     /// tailIndent 是"从容器左侧算的绝对位置",解析时无法知道渲染宽度。
     /// 代码块段落(等宽字体且带 headIndent 的段落)在知道实际宽度后,
     /// 把 tailIndent 改写为 宽度-8,实现卡片内右侧 8pt 边距。
     private func harmonizeCodeBlockTailIndent() {
-        guard let storage = textStorage, bounds.width > 2, storage.length > 0 else { return }
+        guard let storage = textStorage else { return }
+        storage.beginEditing()
+        harmonizeCodeBlockTailIndent(in: storage)
+        storage.endEditing()
+    }
+
+    private func harmonizeCodeBlockTailIndent(in storage: NSMutableAttributedString) {
+        guard bounds.width > 2, storage.length > 0 else { return }
         let target = bounds.width - 8
         let whole = NSRange(location: 0, length: storage.length)
 
-        storage.beginEditing()
         storage.enumerateAttribute(.font, in: whole) { value, range, _ in
             guard let font = value as? NSFont, font.isFixedPitch else { return }
             let paragraphRange = (storage.string as NSString).paragraphRange(for: range)
@@ -328,7 +382,45 @@ final class AutoHeightMarkdownTextView: DownTextView {
             mutable.tailIndent = target
             storage.addAttribute(.paragraphStyle, value: mutable, range: paragraphRange)
         }
-        storage.endEditing()
+    }
+
+    /// Keeps only complete, unchanged paragraphs. Replacing the active paragraph
+    /// is intentional: an arriving Markdown delimiter may restyle text that was
+    /// already visible, while completed paragraphs can retain their glyph cache.
+    private func stableTextPrefixLength(
+        _ lhs: NSAttributedString,
+        _ rhs: NSAttributedString
+    ) -> Int {
+        let limit = min(lhs.length, rhs.length)
+        guard limit > 0 else { return 0 }
+
+        let lhsString = lhs.string as NSString
+        let matchingLength = min(
+            limit,
+            (lhs.string as NSString)
+                .commonPrefix(with: rhs.string, options: [])
+                .utf16.count
+        )
+
+        // The overwhelmingly common streaming case is a pure append whose
+        // already-rendered prefix kept the same attributes. Preserve it all,
+        // including the active paragraph, so NSTextKit only lays out new glyphs.
+        if matchingLength == lhs.length,
+           lhs.length <= rhs.length,
+           lhs.isEqual(to: rhs.attributedSubstring(
+               from: NSRange(location: 0, length: lhs.length)
+           )) {
+            return lhs.length
+        }
+
+        guard matchingLength > 0 else { return 0 }
+        let searchRange = NSRange(location: 0, length: matchingLength)
+        let lastLineBreak = lhsString.range(
+            of: "\n",
+            options: .backwards,
+            range: searchRange
+        )
+        return lastLineBreak.location == NSNotFound ? 0 : NSMaxRange(lastLineBreak)
     }
 
     override var intrinsicContentSize: NSSize {
