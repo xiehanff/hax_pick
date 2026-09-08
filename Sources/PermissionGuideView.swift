@@ -9,6 +9,7 @@ final class PermissionGuideViewController: NSViewController {
 
     private let subtitle = NSTextField.haxLabel("", font: .systemFont(ofSize: 12), color: AppTheme.textSecondary)
     private let statusDot = NSView()
+    private let repairButton = NSButton()
 
     init(appState: AppState, onClose: @escaping () -> Void) {
         self.appState = appState
@@ -169,32 +170,56 @@ final class PermissionGuideViewController: NSViewController {
     }
 
     private func makeActions() -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+
+        let primaryRow = NSStackView()
+        primaryRow.orientation = .horizontal
+        primaryRow.alignment = .centerY
+        primaryRow.spacing = 8
 
         let open = NSButton(title: "打开辅助功能设置", target: self, action: #selector(openSettings))
         open.appearance = AppTheme.windowAppearance
         open.bezelStyle = .rounded
         open.keyEquivalent = "\r"
+
         let refresh = NSButton(title: "刷新状态", target: self, action: #selector(refreshPermission))
         refresh.appearance = AppTheme.windowAppearance
         refresh.bezelStyle = .rounded
+
         let later = NSButton(title: "稍后再说", target: self, action: #selector(closeGuide))
         later.appearance = AppTheme.windowAppearance
         later.bezelStyle = .rounded
 
-        row.addArrangedSubview(open)
-        row.addArrangedSubview(refresh)
-        row.addArrangedSubview(NSView())
-        row.addArrangedSubview(later)
-        return row
+        primaryRow.addArrangedSubview(open)
+        primaryRow.addArrangedSubview(refresh)
+        primaryRow.addArrangedSubview(NSView())
+        primaryRow.addArrangedSubview(later)
+
+        repairButton.appearance = AppTheme.windowAppearance
+        repairButton.title = "系统里显示已开启但仍不可用？重置旧权限记录"
+        repairButton.bezelStyle = .rounded
+        repairButton.target = self
+        repairButton.action = #selector(repairPermission)
+
+        stack.addArrangedSubview(primaryRow)
+        stack.addArrangedSubview(repairButton)
+        primaryRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        return stack
     }
 
     private func refresh() {
-        subtitle.stringValue = appState.permissionGranted ? "已授权，可以开始使用" : "需要辅助功能权限才能监听划词"
+        if let repairError = appState.permissionRepairError, !repairError.isEmpty {
+            subtitle.stringValue = "权限记录异常：\(repairError)"
+        } else {
+            subtitle.stringValue = appState.permissionGranted
+                ? "已授权，可以开始使用"
+                : "需要辅助功能权限才能监听划词"
+        }
         statusDot.layer?.backgroundColor = (appState.permissionGranted ? AppTheme.success : NSColor.systemOrange).cgColor
+        repairButton.isHidden = appState.permissionGranted
     }
 
     @objc private func openSettings() {
@@ -206,6 +231,10 @@ final class PermissionGuideViewController: NSViewController {
         if appState.permissionGranted {
             onClose()
         }
+    }
+
+    @objc private func repairPermission() {
+        appState.repairAccessibilityPermission()
     }
 
     @objc private func closeGuide() {
