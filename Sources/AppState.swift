@@ -143,6 +143,7 @@ final class AppState: ObservableObject {
 
     @Published private(set) var permissionGranted = AXIsProcessTrusted()
     @Published private(set) var statusMessage = "准备就绪"
+    @Published private(set) var permissionRepairError: String?
     @Published private(set) var apiKeyStorageError: String?
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -194,12 +195,12 @@ final class AppState: ObservableObject {
     var apiKeyStorageStatusMessage: String {
         switch apiKeyStorageState {
         case .keychain:
-            return "Key 已安全保存在 macOS Keychain，修改后点击保存。"
+            return "Key 已安全保存在 macOS Keychain。"
         case .legacyMigrationPending:
             return "当前仍使用旧版存储，Keychain 迁移尚未完成。"
         case .keychainUnavailable:
             return apiKey.isEmpty
-                ? "暂时无法访问 macOS Keychain，请稍后重试。"
+                ? "暂时无法访问 macOS Keychain，请重新保存。"
                 : "暂时无法访问 macOS Keychain，本次使用兼容凭证。"
         case .empty:
             return "尚未配置 API Key，保存后会写入 macOS Keychain。"
@@ -218,16 +219,22 @@ final class AppState: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
         NSApp.setActivationPolicy(.accessory)
+
+        // Query TCC again after the application has fully launched. This avoids
+        // keeping an initialization-time value if the process identity changed
+        // between builds.
+        permissionGranted = AXIsProcessTrusted()
         selectionMonitor.start()
         if permissionGranted {
             statusMessage = "已开始监听划词"
         } else {
-            statusMessage = "首次使用需要先开启辅助功能"
+            statusMessage = "需要开启辅助功能权限"
             permissionGuideController.presentIfNeeded()
         }
     }
 
     func requestAccessibilityPermission() {
+        permissionRepairError = nil
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         permissionGranted = AXIsProcessTrustedWithOptions(options)
         statusMessage = permissionGranted ? "辅助功能权限已开启" : "已发起权限申请，请在系统设置中开启"
@@ -235,9 +242,66 @@ final class AppState: ObservableObject {
     }
 
     func refreshPermissionStatus() {
+        permissionRepairError = nil
         permissionGranted = AXIsProcessTrusted()
-        statusMessage = permissionGranted ? "权限状态正常，可以开始划词" : "辅助功能权限仍未开启"
+        statusMessage = permissionGranted ? "权限状态正常，可以开始划词" : "当前进程仍未获得辅助功能权限"
         permissionGuideController.syncVisibility(permissionGranted: permissionGranted)
+    }
+
+    /// Repairs the common development-time TCC mismatch where System Settings
+    /// still shows an older build as enabled but AXIsProcessTrusted() rejects the
+    /// newly-built process. This is explicit user action; HaxPick never resets
+    /// privacy grants automatically.
+    func repairAccessibilityPermission() {
+        permissionRepairError = nil
+        statusMessage = "正在清理旧的辅助功能权限记录…"
+
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.hax.haxpick"
+        Task { [weak self] in
+            let errorMessage = await Self.resetAccessibilityPermission(bundleID: bundleID)
+            guard let self else { return }
+
+            if let errorMessage {
+                self.permissionRepairError = errorMessage
+                self.statusMessage = "无法自动重置权限，请在系统设置中手动删除旧条目"
+                self.openAccessibilitySettings()
+                return
+            }
+
+            self.permissionGranted = false
+            self.statusMessage = "旧权限记录已清除，请重新开启 HaxPick"
+
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+            self.openAccessibilitySettings()
+        }
+    }
+
+    nonisolated private static func resetAccessibilityPermission(bundleID: String) async -> String? {
+        await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            let errorPipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            process.arguments = ["reset", "Accessibility", bundleID]
+            process.standardError = errorPipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                return "无法启动 tccutil：\(error.localizedDescription)"
+            }
+
+            guard process.terminationStatus == 0 else {
+                let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let detail = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return detail?.isEmpty == false
+                    ? detail
+                    : "tccutil 返回状态 \(process.terminationStatus)"
+            }
+            return nil
+        }.value
     }
 
     func showPermissionGuide() {
@@ -401,8 +465,14 @@ final class AppState: ObservableObject {
     }
 
     private func showToolbar(for text: String, at point: NSPoint) {
-        guard permissionGranted else {
-            statusMessage = "检测到划词，但当前没有辅助功能权限"
+        // Re-check at the moment the privileged operation is needed. If the user
+        // changed the grant while HaxPick was running, the UI state self-corrects.
+        let trustedNow = AXIsProcessTrusted()
+        if trustedNow != permissionGranted {
+            permissionGranted = trustedNow
+        }
+        guard trustedNow else {
+            statusMessage = "检测到划词，但当前进程没有辅助功能权限"
             return
         }
 
