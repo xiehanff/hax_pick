@@ -10,7 +10,7 @@ final class AiMessageBubble: NSView {
     private var contentRoot: NSView?
     private var reasoningView: AiReasoningDisclosureView?
     private var assistantBodyView: NSView?
-    private var streamingAssistantTextView: AutoHeightTextView?
+    private var assistantMarkdownView: MarkdownWithCodeBlocksView?
 
     init(
         message: AiMessage,
@@ -37,11 +37,10 @@ final class AiMessageBubble: NSView {
         assistantContentOpacity: CGFloat
     ) {
         let previousMessage = currentMessage
-        let wasStreaming = self.isStreaming
         let previousOpacity = self.assistantContentOpacity
 
         guard message != previousMessage ||
-                isStreaming != wasStreaming ||
+                isStreaming != self.isStreaming ||
                 abs(assistantContentOpacity - previousOpacity) > 0.001 else {
             return
         }
@@ -59,7 +58,6 @@ final class AiMessageBubble: NSView {
         case .assistant:
             updateAssistantContent(
                 previousMessage: previousMessage,
-                wasStreaming: wasStreaming,
                 previousOpacity: previousOpacity
             )
         case .user:
@@ -76,7 +74,7 @@ final class AiMessageBubble: NSView {
         contentRoot = nil
         reasoningView = nil
         assistantBodyView = nil
-        streamingAssistantTextView = nil
+        assistantMarkdownView = nil
 
         let root: NSView
         switch currentMessage.role {
@@ -108,7 +106,7 @@ final class AiMessageBubble: NSView {
         text.textColor = AppTheme.textPrimary
         text.string = currentMessage.content
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 3
+        paragraph.lineSpacing = 4
         text.defaultParagraphStyle = paragraph
 
         bubble.addSubview(text)
@@ -157,8 +155,9 @@ final class AiMessageBubble: NSView {
         }
 
         if !currentMessage.content.isEmpty {
-            let body = makeAssistantBody()
+            let body = makeAssistantMarkdownBody()
             assistantBodyView = body
+            assistantMarkdownView = body
             stack.addArrangedSubview(body)
             body.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         } else if isStreaming && !showReasoning {
@@ -171,7 +170,6 @@ final class AiMessageBubble: NSView {
 
     private func updateAssistantContent(
         previousMessage: AiMessage,
-        wasStreaming: Bool,
         previousOpacity: CGFloat
     ) {
         guard let stack = contentRoot?.subviews.compactMap({ $0 as? NSStackView }).first else {
@@ -179,7 +177,7 @@ final class AiMessageBubble: NSView {
             return
         }
 
-        var needsLayout = false
+        var needsImmediateLayout = false
         let showReasoning = shouldShowReasoning(for: currentMessage, streaming: isStreaming)
 
         if !showReasoning {
@@ -187,11 +185,11 @@ final class AiMessageBubble: NSView {
                 stack.removeArrangedSubview(reasoningView)
                 reasoningView.removeFromSuperview()
                 self.reasoningView = nil
-                needsLayout = true
+                needsImmediateLayout = true
             }
         } else if let reasoningView {
             if reasoningView.update(text: currentMessage.reasoning, isStreaming: isStreaming) {
-                needsLayout = true
+                needsImmediateLayout = true
             }
         } else {
             let disclosure = AiReasoningDisclosureView(
@@ -202,52 +200,42 @@ final class AiMessageBubble: NSView {
             reasoningView = disclosure
             stack.insertArrangedSubview(disclosure, at: 0)
             disclosure.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-            needsLayout = true
+            needsImmediateLayout = true
         }
 
         let contentChanged = currentMessage.content != previousMessage.content
-        let streamingChanged = isStreaming != wasStreaming
         let opacityChanged = abs(assistantContentOpacity - previousOpacity) > 0.001
 
         if currentMessage.content.isEmpty {
             if isStreaming && !showReasoning {
                 if !(assistantBodyView is ThinkingIndicatorView) {
                     replaceAssistantBody(in: stack, with: ThinkingIndicatorView())
-                    needsLayout = true
+                    needsImmediateLayout = true
                 }
             } else if let assistantBodyView {
                 stack.removeArrangedSubview(assistantBodyView)
                 assistantBodyView.removeFromSuperview()
                 self.assistantBodyView = nil
-                streamingAssistantTextView = nil
-                needsLayout = true
+                assistantMarkdownView = nil
+                needsImmediateLayout = true
             }
-        } else if isStreaming {
-            if let textView = streamingAssistantTextView,
-               assistantBodyView === textView,
-               !streamingChanged {
-                if contentChanged {
-                    textView.string = currentMessage.content
-                    textView.invalidateIntrinsicContentSize()
-                    needsLayout = true
-                }
-                if opacityChanged {
-                    textView.alphaValue = assistantContentOpacity
-                }
-            } else {
-                let textView = makeStreamingAssistantBody()
-                replaceAssistantBody(in: stack, with: textView)
-                needsLayout = true
+        } else if let markdown = assistantMarkdownView,
+                  assistantBodyView === markdown {
+            if contentChanged {
+                // CDMarkdownKit applies the new layout asynchronously and calls
+                // onLayoutChange only after the parsed snapshot is ready.
+                markdown.update(text: currentMessage.content)
             }
-        } else if wasStreaming || contentChanged || assistantBodyView == nil {
-            let body = makeCompletedAssistantBody()
+            if opacityChanged {
+                markdown.alphaValue = assistantContentOpacity
+            }
+        } else {
+            let body = makeAssistantMarkdownBody()
             replaceAssistantBody(in: stack, with: body)
-            needsLayout = true
-        } else if opacityChanged {
-            assistantBodyView?.alphaValue = assistantContentOpacity
+            needsImmediateLayout = true
         }
 
-        if needsLayout {
+        if needsImmediateLayout {
             onLayoutChange()
         }
     }
@@ -258,38 +246,13 @@ final class AiMessageBubble: NSView {
             assistantBodyView.removeFromSuperview()
         }
         assistantBodyView = body
-        if let textView = body as? AutoHeightTextView {
-            streamingAssistantTextView = textView
-        } else {
-            streamingAssistantTextView = nil
-        }
+        assistantMarkdownView = body as? MarkdownWithCodeBlocksView
         body.alphaValue = assistantContentOpacity
         stack.addArrangedSubview(body)
         body.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
 
-    private func makeAssistantBody() -> NSView {
-        if isStreaming {
-            return makeStreamingAssistantBody()
-        }
-        return makeCompletedAssistantBody()
-    }
-
-    private func makeStreamingAssistantBody() -> AutoHeightTextView {
-        let text = AutoHeightTextView()
-        text.font = .systemFont(ofSize: 13)
-        text.textColor = AppTheme.textPrimary
-        text.string = currentMessage.content
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 4
-        paragraph.paragraphSpacing = 7
-        text.defaultParagraphStyle = paragraph
-        text.alphaValue = assistantContentOpacity
-        streamingAssistantTextView = text
-        return text
-    }
-
-    private func makeCompletedAssistantBody() -> MarkdownWithCodeBlocksView {
+    private func makeAssistantMarkdownBody() -> MarkdownWithCodeBlocksView {
         let body = MarkdownWithCodeBlocksView(
             text: currentMessage.content,
             textColor: AppTheme.textPrimary,
@@ -312,7 +275,7 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
     private let spinner = NSProgressIndicator()
     private let chevron = NSImageView()
     private var bodyView: NSView?
-    private var streamingTextView: AutoHeightTextView?
+    private var markdownBodyView: MarkdownWithCodeBlocksView?
     private var collapseFooter: NSView?
 
     init(text: String, isStreaming: Bool, onLayoutChange: @escaping () -> Void) {
@@ -337,7 +300,6 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
     func update(text: String, isStreaming: Bool) -> Bool {
         let oldText = self.text
         let textChanged = text != oldText
-        let streamingChanged = isStreaming != self.isStreaming
         let emptyStateChanged = oldText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty !=
             text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
@@ -347,21 +309,13 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
 
         guard isExpanded else { return false }
 
-        if streamingChanged || emptyStateChanged {
+        if emptyStateChanged {
             rebuildExpandedBody()
             return true
         }
 
-        if isStreaming, let streamingTextView {
-            guard textChanged else { return false }
-            streamingTextView.string = text
-            streamingTextView.invalidateIntrinsicContentSize()
-            return true
-        }
-
-        if textChanged {
-            rebuildExpandedBody()
-            return true
+        if textChanged, let markdownBodyView {
+            markdownBodyView.update(text: text)
         }
         return false
     }
@@ -453,7 +407,7 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
             bodyView.removeFromSuperview()
             self.bodyView = nil
         }
-        streamingTextView = nil
+        markdownBodyView = nil
         if let collapseFooter {
             stack.removeArrangedSubview(collapseFooter)
             collapseFooter.removeFromSuperview()
@@ -472,24 +426,15 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
                 font: .systemFont(ofSize: 11.5),
                 color: AppTheme.textSecondary.withAlphaComponent(0.58)
             )
-        } else if isStreaming {
-            let textView = AutoHeightTextView()
-            textView.font = .systemFont(ofSize: 11.5)
-            textView.textColor = AppTheme.textSecondary.withAlphaComponent(0.66)
-            textView.string = text
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.lineSpacing = 3
-            paragraph.paragraphSpacing = 5
-            textView.defaultParagraphStyle = paragraph
-            streamingTextView = textView
-            body = textView
         } else {
-            body = MarkdownWithCodeBlocksView(
+            let markdown = MarkdownWithCodeBlocksView(
                 text: text,
                 textColor: AppTheme.textSecondary.withAlphaComponent(0.66),
                 fontSize: 11.5,
                 onLayoutChange: onLayoutChange
             )
+            markdownBodyView = markdown
+            body = markdown
         }
 
         bodyView = body
@@ -503,7 +448,7 @@ private final class AiReasoningDisclosureView: RoundedSurfaceView {
         footer.translatesAutoresizingMaskIntoConstraints = false
         footer.addArrangedSubview(NSView())
         let collapse = NSButton.haxTextButton(
-            "收起 ↑",
+            "收起思考过程 ↑",
             target: self,
             action: #selector(toggleExpanded),
             font: .systemFont(ofSize: 10.5, weight: .medium),
