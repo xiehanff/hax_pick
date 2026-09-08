@@ -110,10 +110,14 @@ class RoundedSurfaceView: NSView {
     }
 }
 
-/// Borderless AppKit buttons do not guarantee a square cell or a layer radius
-/// that tracks the final layout. This control owns both constraints and radius,
-/// so close/action buttons remain true circles at every backing scale.
+/// Borderless NSButton may still use the platform control-cell height even when
+/// Auto Layout asks for a square frame. Draw the background as an independent
+/// circle inside the actual bounds so the visual is mathematically circular even
+/// if AppKit gives the control a few extra vertical points.
 final class CircleIconButton: NSButton {
+    private let diameter: CGFloat
+    private let backgroundCircle = CAShapeLayer()
+
     init(
         symbolName: String,
         accessibilityDescription: String,
@@ -123,7 +127,8 @@ final class CircleIconButton: NSButton {
         target: AnyObject?,
         action: Selector?
     ) {
-        super.init(frame: .zero)
+        self.diameter = size
+        super.init(frame: NSRect(x: 0, y: 0, width: size, height: size))
         translatesAutoresizingMaskIntoConstraints = false
         appearance = AppTheme.windowAppearance
         isBordered = false
@@ -136,19 +141,37 @@ final class CircleIconButton: NSButton {
         self.target = target
         self.action = action
         wantsLayer = true
-        layer?.backgroundColor = backgroundColor.cgColor
-        layer?.masksToBounds = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        backgroundCircle.fillColor = backgroundColor.cgColor
+        backgroundCircle.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+        layer?.insertSublayer(backgroundCircle, at: 0)
         widthAnchor.constraint(equalToConstant: size).isActive = true
-        heightAnchor.constraint(equalTo: widthAnchor).isActive = true
+        heightAnchor.constraint(equalToConstant: size).isActive = true
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .vertical)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: diameter, height: diameter)
+    }
+
     override func layout() {
         super.layout()
-        layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+        let side = min(diameter, bounds.width, bounds.height)
+        let circleRect = NSRect(
+            x: (bounds.width - side) / 2,
+            y: (bounds.height - side) / 2,
+            width: side,
+            height: side
+        )
+        backgroundCircle.frame = bounds
+        backgroundCircle.path = CGPath(ellipseIn: circleRect, transform: nil)
     }
 }
 
