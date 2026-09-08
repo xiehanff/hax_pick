@@ -21,12 +21,14 @@ final class PermissionGuideViewController: NSViewController {
     }
 
     override func loadView() {
-        view = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 420))
-        view.appearance = AppTheme.windowAppearance
-        view.wantsLayer = true
-        view.applyContinuousCornerRadius(AppTheme.permissionCorner, background: AppTheme.background)
-        view.layer?.borderWidth = 0.75
-        view.layer?.borderColor = AppTheme.border.cgColor
+        let rootSurface = RoundedSurfaceView(
+            cornerRadius: AppTheme.permissionCorner,
+            backgroundColor: AppTheme.background,
+            borderColor: AppTheme.border,
+            borderWidth: 0.75
+        )
+        rootSurface.frame = NSRect(x: 0, y: 0, width: 480, height: 420)
+        view = rootSurface
 
         let root = NSStackView()
         root.orientation = .vertical
@@ -87,11 +89,12 @@ final class PermissionGuideViewController: NSViewController {
     }
 
     private func makeSteps() -> NSView {
-        let card = NSView()
-        card.translatesAutoresizingMaskIntoConstraints = false
-        card.applyContinuousCornerRadius(14, background: AppTheme.cardBg)
-        card.layer?.borderWidth = 0.75
-        card.layer?.borderColor = AppTheme.border.cgColor
+        let card = RoundedSurfaceView(
+            cornerRadius: 14,
+            backgroundColor: AppTheme.cardBg,
+            borderColor: AppTheme.border,
+            borderWidth: 0.75
+        )
 
         let stack = NSStackView()
         stack.orientation = .vertical
