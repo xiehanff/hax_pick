@@ -1,13 +1,23 @@
 import AppKit
 import Combine
 
+private final class ChatInputTextView: NSTextView {
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+}
+
 @MainActor
 final class AiChatInputBar: NSView, NSTextViewDelegate {
     private let viewModel: PanelSessionViewModel
     private var observation: AnyCancellable?
 
     private let inputScrollView = NSScrollView()
-    private let inputTextView = NSTextView()
+    private let inputTextView = ChatInputTextView()
     private let placeholderLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 13), color: AppTheme.textSecondary.withAlphaComponent(0.62))
     private let newSessionButton = NSButton()
     private let actionButton = NSButton()
@@ -26,6 +36,21 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        let viewport = inputScrollView.contentSize
+        guard viewport.width > 0, viewport.height > 0 else { return }
+
+        let desired = NSSize(
+            width: viewport.width,
+            height: max(viewport.height, inputTextView.frame.height)
+        )
+        if abs(inputTextView.frame.width - desired.width) > 0.5 ||
+            inputTextView.frame.height < viewport.height {
+            inputTextView.setFrameSize(desired)
+        }
     }
 
     private func buildUI() {
@@ -70,6 +95,10 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         inputTextView.isRichText = false
         inputTextView.isHorizontallyResizable = false
         inputTextView.isVerticallyResizable = true
+        inputTextView.autoresizingMask = [.width]
+        inputTextView.minSize = NSSize(width: 0, height: 42)
+        inputTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        inputTextView.frame = NSRect(x: 0, y: 0, width: 1, height: 42)
         inputTextView.textContainerInset = NSSize(width: 0, height: 2)
         inputTextView.textContainer?.lineFragmentPadding = 0
         inputTextView.textContainer?.widthTracksTextView = true
@@ -80,6 +109,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         inputScrollView.documentView = inputTextView
 
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        placeholderLabel.isEnabled = false
 
         newSessionButton.translatesAutoresizingMaskIntoConstraints = false
         newSessionButton.appearance = AppTheme.windowAppearance
@@ -176,6 +206,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         inputTextView.string = ""
         viewModel.followUpInput = ""
         refresh()
+        window?.makeKey()
         window?.makeFirstResponder(inputTextView)
     }
 
