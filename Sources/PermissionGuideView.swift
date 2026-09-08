@@ -27,6 +27,8 @@ final class PermissionGuideViewController: NSViewController {
             borderColor: AppTheme.border,
             borderWidth: 0.75
         )
+        rootSurface.translatesAutoresizingMaskIntoConstraints = true
+        rootSurface.autoresizingMask = [.width, .height]
         rootSurface.frame = NSRect(x: 0, y: 0, width: 480, height: 420)
         view = rootSurface
 
