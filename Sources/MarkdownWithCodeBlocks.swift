@@ -1,13 +1,20 @@
 import AppKit
 import CDMarkdownKit
 
-/// Completed assistant messages are rendered entirely by CDMarkdownKit.
-/// HaxPick only owns AppKit sizing/lifecycle around the library view; Markdown
-/// parsing, fenced code blocks, lists, quotes, links and styled backgrounds are
-/// delegated to the mature renderer.
+/// Markdown view backed entirely by CDMarkdownKit. The same AppKit text view is
+/// retained for the lifetime of a message, including while the model is still
+/// streaming. New snapshots are parsed continuously and only the newest parse is
+/// applied, so rendering never waits for the request to finish.
 @MainActor
 final class MarkdownWithCodeBlocksView: NSView {
     private let markdownView = AutoHeightMarkdownTextView()
+    private let parser: CDMarkdownParser
+    private let textColor: NSColor
+    private let fontSize: CGFloat
+    private let onLayoutChange: () -> Void
+
+    private var currentText = ""
+    private var requestedRevision = 0
     private var renderTask: Task<Void, Never>?
 
     init(
@@ -16,6 +23,10 @@ final class MarkdownWithCodeBlocksView: NSView {
         fontSize: CGFloat = 13,
         onLayoutChange: @escaping () -> Void = {}
     ) {
+        self.textColor = textColor
+        self.fontSize = fontSize
+        self.onLayoutChange = onLayoutChange
+        self.parser = Self.makeParser(textColor: textColor, fontSize: fontSize)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -23,30 +34,7 @@ final class MarkdownWithCodeBlocksView: NSView {
         addSubview(markdownView)
         markdownView.pinEdges(to: self)
 
-        // Keep a lightweight plain-text fallback visible while the async parser
-        // works. This avoids a blank assistant row on long completed responses.
-        markdownView.setAttributedString(
-            NSAttributedString(
-                string: text,
-                attributes: [
-                    .font: NSFont.systemFont(ofSize: fontSize),
-                    .foregroundColor: textColor,
-                ]
-            )
-        )
-
-        let parser = CDMarkdownParser(
-            theme: Self.makeTheme(textColor: textColor, fontSize: fontSize)
-        )
-
-        renderTask = Task { [weak self] in
-            let rendered = await parser.parse(text)
-            guard !Task.isCancelled, let self else { return }
-            self.markdownView.setAttributedString(rendered)
-            self.markdownView.invalidateIntrinsicContentSize()
-            self.needsLayout = true
-            onLayoutChange()
-        }
+        update(text: text, showPlainFallback: true)
     }
 
     required init?(coder: NSCoder) {
@@ -57,57 +45,128 @@ final class MarkdownWithCodeBlocksView: NSView {
         renderTask?.cancel()
     }
 
-    private static func makeTheme(textColor: NSColor, fontSize: CGFloat) -> CDMarkdownTheme {
-        let bodyParagraph = NSMutableParagraphStyle()
-        bodyParagraph.lineSpacing = 4
-        bodyParagraph.paragraphSpacing = 8
+    /// Updates the existing renderer instead of replacing the message body.
+    /// Parsing is latest-wins: if several 40ms streaming snapshots arrive while
+    /// one parse is running, stale results are skipped and the newest snapshot is
+    /// parsed immediately afterwards.
+    @discardableResult
+    func update(text: String, showPlainFallback: Bool = false) -> Bool {
+        guard text != currentText else { return false }
+        currentText = text
+        requestedRevision &+= 1
+
+        if showPlainFallback || markdownView.string.isEmpty {
+            showFallback(text)
+        }
+        startRenderLoopIfNeeded()
+        return true
+    }
+
+    private func startRenderLoopIfNeeded() {
+        guard renderTask == nil else { return }
+
+        renderTask = Task { [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                let revision = self.requestedRevision
+                let snapshot = self.currentText
+                let rendered = await self.parser.parse(snapshot)
+
+                guard !Task.isCancelled else { break }
+                guard revision == self.requestedRevision else {
+                    // A newer streaming snapshot arrived while parsing. Do not
+                    // flash an older render; immediately parse the latest text.
+                    continue
+                }
+
+                self.apply(rendered)
+                self.renderTask = nil
+                return
+            }
+
+            self.renderTask = nil
+        }
+    }
+
+    private func showFallback(_ text: String) {
+        markdownView.setAttributedString(
+            NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: fontSize),
+                    .foregroundColor: textColor,
+                    .paragraphStyle: Self.makeBodyParagraphStyle(),
+                ]
+            )
+        )
+        markdownView.invalidateIntrinsicContentSize()
+    }
+
+    private func apply(_ rendered: NSAttributedString) {
+        let oldSelection = markdownView.selectedRange()
+        markdownView.setAttributedString(rendered)
+
+        if oldSelection.location != NSNotFound {
+            let length = markdownView.string.utf16.count
+            let location = min(oldSelection.location, length)
+            let selectedLength = min(oldSelection.length, max(0, length - location))
+            markdownView.setSelectedRange(NSRange(location: location, length: selectedLength))
+        }
+
+        markdownView.invalidateIntrinsicContentSize()
+        needsLayout = true
+        onLayoutChange()
+    }
+
+    private static func makeBodyParagraphStyle() -> NSMutableParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 7
+        paragraph.paragraphSpacing = 12
+        paragraph.paragraphSpacingBefore = 2
+        return paragraph
+    }
+
+    private static func makeParser(textColor: NSColor, fontSize: CGFloat) -> CDMarkdownParser {
+        let paragraph = makeBodyParagraphStyle()
+        let parser = CDMarkdownParser(
+            font: .systemFont(ofSize: fontSize),
+            fontColor: textColor,
+            backgroundColor: .clear,
+            paragraphStyle: paragraph,
+            automaticLinkDetectionEnabled: true,
+            squashNewlines: false
+        )
 
         let codeBackground = NSColor(hex: 0x2E3038, alpha: 0.96)
         let codeText = NSColor(hex: 0xF1F2F4)
         let mono = NSFont.monospacedSystemFont(ofSize: max(11, fontSize - 1), weight: .regular)
 
-        return CDMarkdownTheme(
-            font: .systemFont(ofSize: fontSize),
-            fontColor: textColor,
-            backgroundColor: .clear,
-            header: .init(
-                color: textColor,
-                paragraphStyle: bodyParagraph
-            ),
-            bold: .init(color: textColor),
-            italic: .init(color: textColor),
-            code: .init(
-                font: mono,
-                color: codeText,
-                backgroundColor: codeBackground
-            ),
-            syntax: .init(
-                font: mono,
-                color: codeText,
-                backgroundColor: codeBackground,
-                paragraphStyle: bodyParagraph
-            ),
-            strikethrough: .init(color: textColor),
-            quote: .init(
-                color: AppTheme.textSecondary,
-                paragraphStyle: bodyParagraph
-            ),
-            list: .init(
-                color: textColor,
-                paragraphStyle: bodyParagraph
-            ),
-            orderedList: .init(
-                color: textColor,
-                paragraphStyle: bodyParagraph
-            ),
-            link: .init(color: .systemBlue),
-            linkReference: .init(color: .systemBlue),
-            taskList: .init(
-                color: textColor,
-                paragraphStyle: bodyParagraph
-            ),
-            horizontalRule: .init(color: AppTheme.textSecondary)
-        )
+        parser.header.color = textColor
+        parser.bold.color = textColor
+        parser.italic.color = textColor
+        parser.strikethrough.color = textColor
+        parser.quote.color = AppTheme.textSecondary
+        parser.list.color = textColor
+        parser.orderedList.color = textColor
+        parser.taskList.color = textColor
+        parser.link.color = .systemBlue
+        parser.linkReference.color = .systemBlue
+        parser.automaticLink.color = .systemBlue
+
+        parser.code.font = mono
+        parser.code.color = codeText
+        parser.code.backgroundColor = codeBackground
+
+        let codeParagraph = makeBodyParagraphStyle()
+        codeParagraph.lineSpacing = 5
+        codeParagraph.paragraphSpacing = 10
+        parser.syntax.font = mono
+        parser.syntax.color = codeText
+        parser.syntax.backgroundColor = codeBackground
+        parser.syntax.paragraphStyle = codeParagraph
+
+        return parser
     }
 }
 
@@ -179,8 +238,8 @@ final class AutoHeightMarkdownTextView: CDMarkdownNSTextView {
     }
 }
 
-/// Lightweight NSTextView used only while tokens are still streaming. It is not
-/// a Markdown renderer; completed content is always handed to CDMarkdownKit.
+/// Lightweight auto-height NSTextView used by non-Markdown UI such as the source
+/// card and user bubbles.
 final class AutoHeightTextView: NSTextView {
     private var lastMeasuredWidth: CGFloat = 0
 
