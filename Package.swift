@@ -9,9 +9,15 @@ let package = Package(
     // 注意：这里故意不声明 executable product。菜单栏 App 必须以 .app 包裹运行
     // （否则 Bundle.main 没有图标资源，辅助功能授权也会按裸可执行文件另立身份）。
     // 请用 hax_pick.xcodeproj 运行；保留 targets 仅供 `swift build` / `swift test` 使用。
+    dependencies: [
+        .package(url: "https://github.com/chrisdhaan/CDMarkdownKit.git", from: "5.0.0"),
+    ],
     targets: [
         .executableTarget(
             name: "HaxPickApp",
+            dependencies: [
+                .product(name: "CDMarkdownKit", package: "CDMarkdownKit"),
+            ],
             path: "Sources",
             resources: [
                 .copy("Resources/HaxIcons"),
