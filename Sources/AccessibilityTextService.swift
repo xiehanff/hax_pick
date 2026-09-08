@@ -35,15 +35,6 @@ enum AccessibilityTextService {
         kAXNumberOfCharactersAttribute as CFString,
     ]
 
-    static func selectedTextSnapshot(dragStartPoint: NSPoint, releasePoint: NSPoint) -> TextSelectionSnapshot? {
-        let focusedElement = focusedElementSnapshot()
-        return selectedTextSnapshot(
-            from: focusedElement,
-            dragStartPoint: dragStartPoint,
-            releasePoint: releasePoint
-        )
-    }
-
     static func selectedTextSnapshot(
         from focusedElement: AXUIElement?,
         dragStartPoint: NSPoint,
@@ -64,13 +55,6 @@ enum AccessibilityTextService {
             return TextSelectionSnapshot(text: text, anchorPoint: anchorPoint)
         }
         return nil
-    }
-
-    static func shouldAttemptClipboardFallback() -> Bool {
-        shouldAttemptClipboardFallback(
-            using: focusedElementSnapshot(),
-            at: NSEvent.mouseLocation
-        )
     }
 
     static func shouldAttemptClipboardFallback(

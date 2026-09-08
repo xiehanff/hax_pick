@@ -92,7 +92,6 @@ final class PanelSessionViewModel: ObservableObject {
     var didStop: Bool { aiSession.didStop }
     var canRetry: Bool { aiSession.canRetry }
     var canStop: Bool { aiSession.canStop }
-    var draftRevision: Int { aiSession.draftRevision }
     var requestRevision: Int { aiSession.requestRevision }
 
     var isFreeChat: Bool {
@@ -101,10 +100,6 @@ final class PanelSessionViewModel: ObservableObject {
 
     var showsSourceTurn: Bool {
         !isFreeChat && !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var titleText: String {
-        currentAction?.resultTitle ?? "AI 对话"
     }
 
     var statusHint: String {
@@ -228,10 +223,6 @@ final class PanelSessionViewModel: ObservableObject {
         guard let lastAssistantContent, !lastAssistantContent.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastAssistantContent, forType: .string)
-    }
-
-    func toggleOriginalExpanded() {
-        isOriginalExpanded.toggle()
     }
 
     @discardableResult

@@ -235,20 +235,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    func requestAccessibilityPermission() {
-        permissionRepairError = nil
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        permissionGranted = AXIsProcessTrustedWithOptions(options)
-        statusMessage = permissionGranted ? "辅助功能权限已开启" : "已发起权限申请，请在系统设置中开启"
-
-        if permissionGranted {
-            stopPermissionPolling()
-        } else {
-            startPermissionPollingIfNeeded()
-        }
-        permissionGuideController.syncVisibility(permissionGranted: permissionGranted)
-    }
-
     func refreshPermissionStatus() {
         permissionRepairError = nil
         permissionGranted = AXIsProcessTrusted()
@@ -317,10 +303,6 @@ final class AppState: ObservableObject {
             }
             return nil
         }.value
-    }
-
-    func showPermissionGuide() {
-        permissionGuideController.present()
     }
 
     func availableModels() -> [DeepSeekService.Model] {
@@ -473,10 +455,6 @@ final class AppState: ObservableObject {
             return
         }
         NSWorkspace.shared.open(url)
-    }
-
-    func quitApp() {
-        NSApp.terminate(nil)
     }
 
     private func installPermissionMonitoring() {

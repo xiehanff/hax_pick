@@ -27,7 +27,6 @@ enum AppTheme {
     static let success = NSColor(hex: 0x34C759)
 
     static let resultCorner: CGFloat = 24
-    static let menuCorner: CGFloat = 18
     static let permissionCorner: CGFloat = 20
     static let glassContentInset: CGFloat = 12
 }

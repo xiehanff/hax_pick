@@ -19,22 +19,6 @@ enum HaxIconAsset: String, CaseIterable {
     }
 }
 
-final class HaxIconImageView: NSImageView {
-    init(asset: HaxIconAsset, size: CGFloat) {
-        super.init(frame: NSRect(x: 0, y: 0, width: size, height: size))
-        translatesAutoresizingMaskIntoConstraints = false
-        image = asset.image
-        imageScaling = .scaleProportionallyUpOrDown
-        contentTintColor = AppTheme.textPrimary
-        widthAnchor.constraint(equalToConstant: size).isActive = true
-        heightAnchor.constraint(equalToConstant: size).isActive = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 private enum HaxIconImageStore {
     static let images = Dictionary(
         uniqueKeysWithValues: HaxIconAsset.allCases.map { asset in
