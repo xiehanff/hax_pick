@@ -34,11 +34,11 @@ final class AiMessageBubblePerformanceTests: XCTestCase {
         XCTAssertTrue(original === updated, "未变化的用户消息不应被 teardown/rebuild")
     }
 
-    func testStreamingAssistantUpdatesPlainTextViewInPlace() throws {
+    func testStreamingAssistantUpdatesMarkdownViewInPlace() throws {
         let id = UUID()
         let first = AiMessage(id: id, role: .assistant, content: "第一段")
         let bubble = AiMessageBubble(message: first, isStreaming: true)
-        let original = try XCTUnwrap(firstTextView(with: "第一段", in: bubble))
+        let original = try XCTUnwrap(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
 
         let second = AiMessage(id: id, role: .assistant, content: "第一段第二段")
         bubble.update(
@@ -47,16 +47,15 @@ final class AiMessageBubblePerformanceTests: XCTestCase {
             assistantContentOpacity: 1
         )
 
-        let updated = try XCTUnwrap(firstTextView(with: "第一段第二段", in: bubble))
-        XCTAssertTrue(original === updated, "同一条流式回答必须原地更新 NSTextView")
-        XCTAssertNil(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
+        let updated = try XCTUnwrap(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
+        XCTAssertTrue(original === updated, "同一条流式回答必须原地更新 Markdown 视图")
     }
 
-    func testStreamingCompletionBuildsMarkdownOnce() throws {
+    func testStreamingCompletionKeepsMarkdownViewIdentity() throws {
         let id = UUID()
         let streaming = AiMessage(id: id, role: .assistant, content: "**完成**")
         let bubble = AiMessageBubble(message: streaming, isStreaming: true)
-        XCTAssertNil(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
+        let streamingView = try XCTUnwrap(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
 
         bubble.update(
             message: streaming,
@@ -64,6 +63,7 @@ final class AiMessageBubblePerformanceTests: XCTestCase {
             assistantContentOpacity: 1
         )
         let completed = try XCTUnwrap(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
+        XCTAssertTrue(streamingView === completed, "完成态不应重建 Markdown 视图")
 
         bubble.update(
             message: streaming,
@@ -71,10 +71,10 @@ final class AiMessageBubblePerformanceTests: XCTestCase {
             assistantContentOpacity: 1
         )
         let unchanged = try XCTUnwrap(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
-        XCTAssertTrue(completed === unchanged, "完成态 Markdown 只应在 streaming → completed 时构建一次")
+        XCTAssertTrue(completed === unchanged, "完成态 Markdown 不应在重复刷新时重建")
     }
 
-    func testExpandedStreamingReasoningUpdatesTextViewInPlace() throws {
+    func testExpandedStreamingReasoningUpdatesMarkdownViewInPlace() throws {
         let id = UUID()
         let first = AiMessage(
             id: id,
@@ -84,10 +84,11 @@ final class AiMessageBubblePerformanceTests: XCTestCase {
         )
         let bubble = AiMessageBubble(message: first, isStreaming: true)
         let disclosureButton = try XCTUnwrap(
-            descendants(of: NSButton.self, in: bubble).first(where: { $0.title.isEmpty })
+            descendants(of: NSButton.self, in: bubble)
+                .first(where: { $0.title.contains("思考过程") })
         )
         disclosureButton.performClick(nil)
-        let original = try XCTUnwrap(firstTextView(with: "第一步", in: bubble))
+        let original = try XCTUnwrap(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
 
         let second = AiMessage(
             id: id,
@@ -101,8 +102,8 @@ final class AiMessageBubblePerformanceTests: XCTestCase {
             assistantContentOpacity: 1
         )
 
-        let updated = try XCTUnwrap(firstTextView(with: "第一步，第二步", in: bubble))
-        XCTAssertTrue(original === updated, "展开的流式 reasoning 也应原地更新轻量文本视图")
+        let updated = try XCTUnwrap(firstDescendant(of: MarkdownWithCodeBlocksView.self, in: bubble))
+        XCTAssertTrue(original === updated, "展开的流式 reasoning 也应原地更新 Markdown 视图")
     }
 
     private func firstTextView(with text: String, in root: NSView) -> AutoHeightTextView? {

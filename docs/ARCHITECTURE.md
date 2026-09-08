@@ -222,21 +222,16 @@ AiMessage.content
 Streaming 阶段和已完成阶段采用不同渲染策略：
 
 ```text
-正在 streaming
+正在 streaming / 已完成
   ↓
-轻量 Text
-  ↓ 不运行完整 Markdown / 正则拆段 / 代码高亮
-
-收到 [DONE] / Stop 接受 partial
-  ↓
-streamingAssistantID 清除
-  ↓
-MarkdownWithCodeBlocks
+MarkdownWithCodeBlocks（Down / cmark 渲染）
+  ↓ 流式期间持续增量解析：latest-wins，只有最新快照会应用，
+    同一个库文本视图原地更新，不重建视图
 ```
 
 `AiAgentSession.streamingAssistantID` 只有在当前请求已经真正收到 partial content 时才有值。因此 regenerate 刚开始、尚未收到新 chunk 时，旧 assistant 仍保持已提交 Markdown；不会因为单纯 `isLoading == true` 就发生视觉降级。
 
-这样 40ms draft publish 不再重复执行整套 Markdown 与代码高亮解析，同时完整结果仍保留原有格式化能力。
+40ms draft publish 复用同一个 Markdown 渲染视图；解析为 latest-wins，过快到达的快照会被合并，正文先以纯文本回退显示、解析完成后原地替换为格式化结果。Markdown 库为 Down（cmark 0.29，CommonMark 合规；以本地包 `LocalPackages/Down` 引入，本地修补了 `DownLayoutManager` 的代码块背景绘制：整块 6pt 圆角卡片、两侧 8pt 留边，经 `HaxMarkdownStyler`（`DownStyler` 子类）定制字体与配色，经 `DownTextView` / `DownLayoutManager` 绘制代码块背景与引用条）；行内代码为深色胶囊配色，代码块语法高亮由 Splash 叠加（覆写 `style(codeBlock:)`，仅着色不改文本）；此前使用的 CDMarkdownKit 因 inline-code 对中英文相邻场景的解析缺陷已移除。
 
 请求结束时无论是否刚好命中节流窗口，都会执行最终 flush。
 
@@ -439,7 +434,7 @@ Keychain save / delete
 - request window 必须保留 hidden anchors 和最新 dependency unit；不要把当前 follow-up 与直接依赖的上一轮回答拆开
 - `DeepSeekService` 不重新加入 prompt、history window 或 retry 业务逻辑
 - Streaming chunk 可以高频到达，但 UI draft 发布必须继续节流
-- active streaming assistant 用轻量 Text；完成后再恢复 Markdown/code highlighting
+- Markdown 渲染统一走 Down（cmark）；流式与完成态共用同一个库文本视图原地更新，不得自写 Markdown parser
 - partial 可见不等于 request completed；后续发送必须检查 `isLoading`
 - Chat Completions stream 只有收到 `[DONE]` 才能 commit assistant
 - Regenerate 必须保持事务式

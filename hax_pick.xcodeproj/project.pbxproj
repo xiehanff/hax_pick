@@ -33,7 +33,8 @@
 		ED30EBA5963281F2E4F8058A /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */; };
 		F10000000000000000000001 /* HaxIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* HaxIcon.swift */; };
 		F10100000000000000000001 /* HaxIcons in Resources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000002 /* HaxIcons */; };
-		F20000000000000000000001 /* CDMarkdownKit in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000002 /* CDMarkdownKit */; };
+		F20000000000000000000001 /* Down in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000002 /* Down */; };
+		F20000000000000000000006 /* Splash in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000005 /* Splash */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -73,7 +74,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				55D3D0214EC17545E3D5C791 /* Cocoa.framework in Frameworks */,
-				F20000000000000000000001 /* CDMarkdownKit in Frameworks */,
+				F20000000000000000000001 /* Down in Frameworks */,
+				F20000000000000000000006 /* Splash in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -172,7 +174,8 @@
 			);
 			name = hax_pick;
 			packageProductDependencies = (
-				F20000000000000000000002 /* CDMarkdownKit */,
+				F20000000000000000000002 /* Down */,
+				F20000000000000000000005 /* Splash */,
 			);
 			productName = hax_pick;
 			productReference = 53F0B87F8EAA840A1A6E7D40 /* hax_pick.app */;
@@ -197,7 +200,8 @@
 			);
 			mainGroup = F5C1051224EEDF073ED734D4;
 			packageReferences = (
-				F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */,
+				F20000000000000000000003 /* XCLocalSwiftPackageReference "Down" */,
+				F20000000000000000000004 /* XCRemoteSwiftPackageReference "Splash" */,
 			);
 			productRefGroup = 2CF3D2E3E3BE55A3B52AB784 /* Products */;
 			projectDirPath = "";
@@ -481,21 +485,30 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */ = {
+		F20000000000000000000003 /* XCLocalSwiftPackageReference "Down" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/Down;
+		};
+		F20000000000000000000004 /* XCRemoteSwiftPackageReference "Splash" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/chrisdhaan/CDMarkdownKit.git";
+			repositoryURL = "https://github.com/JohnSundell/Splash.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 5.0.0;
+				minimumVersion = 0.16.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		F20000000000000000000002 /* CDMarkdownKit */ = {
+		F20000000000000000000002 /* Down */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F20000000000000000000003 /* XCRemoteSwiftPackageReference "CDMarkdownKit" */;
-			productName = CDMarkdownKit;
+			package = F20000000000000000000003 /* XCLocalSwiftPackageReference "Down" */;
+			productName = Down;
+		};
+		F20000000000000000000005 /* Splash */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F20000000000000000000004 /* XCRemoteSwiftPackageReference "Splash" */;
+			productName = Splash;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

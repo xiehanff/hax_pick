@@ -1,13 +1,13 @@
 {
-  "originHash" : "eb99924d8f4ab9063a65590d17206ca73291b1d4945ce0acff667ddb94394667",
+  "originHash" : "0a098b92d7e791cd309f697ac9cca8bfadec1711cfd8a6bd11c8fafb369d0ff2",
   "pins" : [
     {
-      "identity" : "cdmarkdownkit",
+      "identity" : "splash",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/chrisdhaan/CDMarkdownKit.git",
+      "location" : "https://github.com/JohnSundell/Splash.git",
       "state" : {
-        "revision" : "3d336f5e4014f0f42b52f347cd7f86ac0faa0082",
-        "version" : "5.0.0"
+        "revision" : "7f4df436eb78fe64fe2c32c58006e9949fa28ad8",
+        "version" : "0.16.0"
       }
     }
   ],

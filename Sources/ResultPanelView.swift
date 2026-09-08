@@ -454,7 +454,8 @@ private final class ConversationDocumentView: NSView {
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            // 右侧多留 12pt 给覆盖式垂直滚动条,内容不被 scroller 挡住
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
         ])
     }
@@ -627,8 +628,10 @@ private final class FollowUpSuggestionsView: NSView {
         stack.addArrangedSubview(NSTextField.haxLabel("继续追问", font: .systemFont(ofSize: 10, weight: .semibold), color: AppTheme.textSecondary))
 
         for suggestion in suggestions {
-            let button = SuggestionButton(title: suggestion, action: { onTap(suggestion) })
+            let button = SuggestionPill(title: suggestion, action: { onTap(suggestion) })
             stack.addArrangedSubview(button)
+            // 文本过长时按钮最宽到容器宽度,超出部分尾部省略号
+            button.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
         }
         addSubview(stack)
         stack.pinEdges(to: self)
@@ -639,26 +642,47 @@ private final class FollowUpSuggestionsView: NSView {
     }
 }
 
-private final class SuggestionButton: NSButton {
-    private let handler: () -> Void
+/// 建议追问胶囊:背景由外层 view 绘制,内部 NSButton 两侧各留 11pt 内边距,
+/// 文本超宽时在按钮宽度内以尾部省略号截断。
+private final class SuggestionPill: NSView {
+    private var onAction: (() -> Void)?
 
     init(title: String, action: @escaping () -> Void) {
-        self.handler = action
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         appearance = AppTheme.windowAppearance
-        self.title = title
-        isBordered = false
-        focusRingType = .none
-        font = .systemFont(ofSize: 10.5)
-        setHaxTitle(title, color: AppTheme.textSecondary, font: .systemFont(ofSize: 10.5))
-        alignment = .left
-        target = self
-        self.action = #selector(runHandler)
         wantsLayer = true
         layer?.backgroundColor = AppTheme.mutedBg.withAlphaComponent(0.64).cgColor
         layer?.cornerRadius = 13
         heightAnchor.constraint(equalToConstant: 26).isActive = true
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let button = NSButton(frame: .zero)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.appearance = AppTheme.windowAppearance
+        button.isBordered = false
+        button.focusRingType = .none
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10.5),
+                .foregroundColor: AppTheme.textSecondary,
+                .paragraphStyle: paragraph,
+            ]
+        )
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 11),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -11),
+            button.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        onAction = action
+        button.target = self
+        button.action = #selector(runHandler)
     }
 
     required init?(coder: NSCoder) {
@@ -666,7 +690,7 @@ private final class SuggestionButton: NSButton {
     }
 
     @objc private func runHandler() {
-        handler()
+        onAction?()
     }
 }
 

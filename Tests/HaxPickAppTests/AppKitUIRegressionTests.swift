@@ -42,7 +42,7 @@ final class AppKitUIRegressionTests: XCTestCase {
     }
 
     func testMarkdownUsesLibraryRendererAndSizesAfterParse() async throws {
-        let rendered = expectation(description: "CDMarkdownKit parse completed")
+        let rendered = expectation(description: "Down parse completed")
         let markdown = MarkdownWithCodeBlocksView(
             text: """
             ## 示例

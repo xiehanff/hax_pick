@@ -8,6 +8,24 @@
 
 ## [Unreleased]
 
+### 变更
+- **代码块边距补齐**:本地 Down 补丁修复 `inset(by:)` 将 `tailIndent` 写死为负值导致代码文本越过卡片右缘的问题;code 段落补卡内左右各 8pt、与上下文各 20pt(视觉约 10pt)的间距。
+- **思考过程展开样式**:箭头改为 SF Symbol(`chevron.right`/`chevron.down`,按钮内自动垂直居中,与文字同色);展开的思考内容放入深色圆角卡片(0x22242B),文字改浅色,与正文输出明确区分。
+- **工具栏视觉对齐结果窗口**:工具栏不再贴满玻璃层,四周留 10pt 玻璃外缘,与结果面板同款 24pt 外圆角、白色内容层与白色描边(加粗到 1.25pt);整体尺寸从 420×48 增加到 440×56。
+- **思考过程改为纯文字样式**:去掉按钮 bezel/胶囊,变为无边框纯文字(11pt medium、textSecondary 72% 灰),箭头(`›`/`⌄`)紧随文字、同色,spinner 仍为右侧独立 sibling。
+- **追问建议胶囊内边距与截断**:`SuggestionButton` 重构为 `SuggestionPill`(背景层 + 内嵌无边距按钮),左右各 11pt 内边距,文字不再贴胶囊边缘;文本过长时胶囊最宽到容器宽度并以尾部省略号截断。
+- **Markdown 视觉微调**:行内代码改为纯紫色(0x7C3AED)高亮文字、无背景;代码块卡片上下内边距加大到 10pt、代码行补 3pt 行距,不再与文本贴边;对话内容右侧留白从 16pt 增加到 28pt,为覆盖式滚动条让位。
+- **代码块背景改为圆角卡片**：Down 上游 `DownLayoutManager` 对代码块背景逐行满宽直角填充（左右顶到容器边缘）。Down 已改为本地包（`LocalPackages/Down`），本地修补为整块圆角（6pt）卡片，距容器两侧各留 8pt，视觉与此前 CDMarkdownKit 的暗色卡片一致；其余源码未动。
+- **Markdown 代码配色修复 + 语法高亮**：行内代码在白色阅读层上改为深色小胶囊(深底浅紫字)，不再几乎不可见；代码块通过引入 [Splash](https://github.com/JohnSundell/Splash)(0.16.0)恢复语法高亮(关键字品红、注释绿、字符串橙、数字浅绿)，高亮通过覆写 `DownStyler.style(codeBlock:)` 叠加在 Down 的暗色代码卡片上，不涉及自写 Markdown 解析。
+- **思考过程按钮边框与阴影**：胶囊按钮边框改为 1pt 不透明 `AppTheme.border`，并增加轻微投影(黑色 16% 不透明度、半径 2.5)。
+
+- **Markdown 库替换：CDMarkdownKit → Down**：AI 回复与思考过程的 Markdown 改由 Down（cmark 0.29，CommonMark 合规）渲染，直接产出 `NSAttributedString`，并使用其 `DownTextView` / `DownLayoutManager` 绘制代码块背景与引用条。修复 CDMarkdownKit inline-code 在中文紧贴反引号场景泄漏 UTF-16 hex（`0061...`）的问题；字体与配色仍由 HaxPick 通过 `DownStyler` 定制，段落排版继续沿用库默认值。
+- **思考过程标签视觉修正**：折叠态不再有全宽边框卡片。边框/背景只落在“思考过程 ›”胶囊按钮自身，按钮按内容宽度收缩；spinner 是按钮右侧的独立 sibling；展开后才切换到与正文同宽的完整布局。
+
+### 修复
+
+- **过时流式渲染测试更新**：`AiMessageBubblePerformanceTests` 中三个断言“流式期间使用纯文本视图”的用例改为匹配当前实现（流式与完成态共用同一 Markdown 视图原地更新），这些用例在本次改动前就已失败。
+
 ### 新增
 
 - **Liquid Glass 跨版本外壳**：新增 `HaxGlassSurface`，macOS 26 / Xcode 26 构建使用 SwiftUI 原生 `glassEffect`，旧系统回退到 `NSVisualEffectView`，并响应“降低透明度”。

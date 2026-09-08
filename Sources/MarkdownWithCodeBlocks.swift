@@ -1,14 +1,61 @@
 import AppKit
-import CDMarkdownKit
+import Down
+import Splash
 
-/// Markdown view backed entirely by CDMarkdownKit. The same AppKit text view is
-/// retained for the lifetime of a message, including while the model is still
-/// streaming. New snapshots are parsed continuously and only the newest parse is
-/// applied, so rendering never waits for the request to finish.
+/// Down styler with HaxPick's light-content palette. Inline code gets a light
+/// chip treatment (the library default has no background and would be
+/// invisible on the white reading layer); fenced code blocks keep Down's dark
+/// card and get token colors from Splash.
+final class HaxMarkdownStyler: DownStyler {
+    private let inlineCodeColor: NSColor
+    private let codeHighlighter: SyntaxHighlighter<AttributedStringOutputFormat>
+
+    init(
+        configuration: DownStylerConfiguration,
+        inlineCodeColor: NSColor,
+        codeHighlighter: SyntaxHighlighter<AttributedStringOutputFormat>
+    ) {
+        self.inlineCodeColor = inlineCodeColor
+        self.codeHighlighter = codeHighlighter
+        super.init(configuration: configuration)
+    }
+
+    override func style(code str: NSMutableAttributedString) {
+        // No chip background: inline code is distinguished purely by the
+        // purple highlight color, per product decision.
+        str.setAttributes([
+            .font: fonts.code,
+            .foregroundColor: inlineCodeColor,
+        ], range: NSRange(location: 0, length: str.length))
+    }
+
+    override func style(codeBlock str: NSMutableAttributedString, fenceInfo: String?) {
+        super.style(codeBlock: str, fenceInfo: fenceInfo)
+
+        let highlighted = codeHighlighter.highlight(str.string)
+        let full = NSRange(location: 0, length: str.length)
+        guard highlighted.string == str.string else { return }
+
+        highlighted.enumerateAttributes(in: full) { attrs, range, _ in
+            var tokenAttributes: [NSAttributedString.Key: Any] = [:]
+            if let font = attrs[.font] { tokenAttributes[.font] = font }
+            if let color = attrs[.foregroundColor] {
+                tokenAttributes[.foregroundColor] = color
+            }
+            guard !tokenAttributes.isEmpty else { return }
+            str.addAttributes(tokenAttributes, range: range)
+        }
+    }
+}
+
+/// Markdown view backed entirely by Down (cmark / CommonMark). The same AppKit
+/// text view is retained for the lifetime of a message, including while the
+/// model is still streaming. New snapshots are parsed continuously and only the
+/// newest parse is applied, so rendering never waits for the request to finish.
 @MainActor
 final class MarkdownWithCodeBlocksView: NSView {
     private let markdownView = AutoHeightMarkdownTextView()
-    private let parser: CDMarkdownParser
+    private let styler: DownStyler
     private let textColor: NSColor
     private let fontSize: CGFloat
     private let onLayoutChange: () -> Void
@@ -26,7 +73,7 @@ final class MarkdownWithCodeBlocksView: NSView {
         self.textColor = textColor
         self.fontSize = fontSize
         self.onLayoutChange = onLayoutChange
-        self.parser = Self.makeParser(textColor: textColor, fontSize: fontSize)
+        self.styler = Self.makeStyler(textColor: textColor, fontSize: fontSize)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -71,14 +118,19 @@ final class MarkdownWithCodeBlocksView: NSView {
             while !Task.isCancelled {
                 let revision = self.requestedRevision
                 let snapshot = self.currentText
-                let rendered = await self.parser.parse(snapshot)
-
+                await Task.yield()
                 guard !Task.isCancelled else { break }
                 guard revision == self.requestedRevision else {
                     continue
                 }
 
-                self.apply(rendered)
+                if let rendered = try? Down(markdownString: snapshot)
+                    .toAttributedString(styler: self.styler) {
+                    guard revision == self.requestedRevision else {
+                        continue
+                    }
+                    self.apply(rendered)
+                }
                 self.renderTask = nil
                 return
             }
@@ -116,53 +168,103 @@ final class MarkdownWithCodeBlocksView: NSView {
         onLayoutChange()
     }
 
-    private static func makeParser(textColor: NSColor, fontSize: CGFloat) -> CDMarkdownParser {
-        // Let CDMarkdownKit own paragraph metrics. HaxPick only customizes the
-        // product palette and type scale; line/paragraph spacing stays with the
-        // renderer so headings, lists, prose and code keep coherent defaults.
-        let parser = CDMarkdownParser(
-            font: .systemFont(ofSize: fontSize),
-            fontColor: textColor,
-            backgroundColor: .clear,
-            automaticLinkDetectionEnabled: true
-        )
-
-        let codeBackground = NSColor(hex: 0x2E3038, alpha: 0.96)
-        let codeText = NSColor(hex: 0xF1F2F4)
+    private static func makeStyler(textColor: NSColor, fontSize: CGFloat) -> HaxMarkdownStyler {
+        // Let Down own paragraph metrics. HaxPick only customizes the product
+        // palette and type scale; line/paragraph spacing stays with the library
+        // so headings, lists, prose and code keep coherent defaults.
         let mono = NSFont.monospacedSystemFont(ofSize: max(11, fontSize - 1), weight: .regular)
 
-        parser.header.color = textColor
-        parser.bold.color = textColor
-        parser.italic.color = textColor
-        parser.strikethrough.color = textColor
-        parser.quote.color = AppTheme.textSecondary
-        parser.list.color = textColor
-        parser.orderedList.color = textColor
-        parser.taskList.color = textColor
-        parser.link.color = .systemBlue
-        parser.linkReference.color = .systemBlue
-        parser.automaticLink.color = .systemBlue
+        let fonts = StaticFontCollection(
+            heading1: .boldSystemFont(ofSize: fontSize + 6),
+            heading2: .boldSystemFont(ofSize: fontSize + 4),
+            heading3: .boldSystemFont(ofSize: fontSize + 2),
+            heading4: .boldSystemFont(ofSize: fontSize + 1),
+            heading5: .boldSystemFont(ofSize: fontSize),
+            heading6: .boldSystemFont(ofSize: fontSize),
+            body: .systemFont(ofSize: fontSize),
+            code: mono,
+            listItemPrefix: .monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
+        )
 
-        parser.code.font = mono
-        parser.code.color = codeText
-        parser.code.backgroundColor = codeBackground
-        parser.syntax.font = mono
-        parser.syntax.color = codeText
-        parser.syntax.backgroundColor = codeBackground
+        let colors = StaticColorCollection(
+            heading1: textColor,
+            heading2: textColor,
+            heading3: textColor,
+            heading4: textColor,
+            heading5: textColor,
+            heading6: textColor,
+            body: textColor,
+            code: NSColor(hex: 0xF1F2F4),
+            link: .systemBlue,
+            quote: AppTheme.textSecondary,
+            quoteStripe: AppTheme.border,
+            thematicBreak: AppTheme.border,
+            listItemPrefix: AppTheme.textSecondary,
+            codeBlockBackground: NSColor(hex: 0x2E3038, alpha: 0.96)
+        )
 
-        return parser
+        return HaxMarkdownStyler(
+            configuration: DownStylerConfiguration(
+                fonts: fonts,
+                colors: colors,
+                paragraphStyles: Self.makeParagraphStyles()
+            ),
+            inlineCodeColor: NSColor(hex: 0x7C3AED),
+            codeHighlighter: Self.makeCodeHighlighter(font: mono)
+        )
+    }
+
+    /// Down 的默认 code 段落样式没有行距,代码行在卡片里挤在一起;
+    /// 这里给 code 段落补行距、卡内左右边距和与上下文的间距,
+    /// 其余样式继续沿用 Down 默认。(inset(by:) 还会在此基础上 +8)
+    private static func makeParagraphStyles() -> StaticParagraphStyleCollection {
+        var styles = StaticParagraphStyleCollection()
+        let codeStyle = NSMutableParagraphStyle()
+        codeStyle.paragraphSpacingBefore = 12
+        codeStyle.paragraphSpacing = 12
+        codeStyle.lineSpacing = 3
+        codeStyle.headIndent = 8
+        codeStyle.firstLineHeadIndent = 8
+        codeStyle.tailIndent = 8
+        styles.code = codeStyle
+        return styles
+    }
+
+    private static func makeCodeHighlighter(font: NSFont) -> SyntaxHighlighter<AttributedStringOutputFormat> {
+        // Palette matches the previous CDMarkdownKit highlighting: magenta
+        // keywords, green comments, orange strings, light-green numbers.
+        let tokenColors: [TokenType: NSColor] = [
+            .keyword: NSColor(hex: 0xFF7AB2),
+            .string: NSColor(hex: 0xFFB86C),
+            .type: NSColor(hex: 0x8BE9FD),
+            .call: NSColor(hex: 0x82AAFF),
+            .number: NSColor(hex: 0xB5E890),
+            .comment: NSColor(hex: 0x7FDB8F),
+            .property: NSColor(hex: 0xF1FA8C),
+            .dotAccess: NSColor(hex: 0xF1FA8C),
+            .preprocessing: NSColor(hex: 0xFF7AB2),
+        ]
+        var codeFont = Font(size: font.pointSize)
+        codeFont.resource = .preloaded(font)
+        let theme = Theme(
+            font: codeFont,
+            plainTextColor: NSColor(hex: 0xF1F2F4),
+            tokenColors: tokenColors
+        )
+        return SyntaxHighlighter(format: AttributedStringOutputFormat(theme: theme))
     }
 }
 
-/// Auto-height wrapper around CDMarkdownKit's AppKit NSTextView. The Markdown
-/// renderer and text layout manager remain the library's; this subclass only
-/// reports the library layout's used height back to HaxPick's NSStackView.
+/// Auto-height wrapper around Down's AppKit NSTextView. The Markdown renderer,
+/// custom layout manager (code block backgrounds, quote stripes) and text layout
+/// remain the library's; this subclass only reports the library layout's used
+/// height back to HaxPick's NSStackView.
 @MainActor
-final class AutoHeightMarkdownTextView: CDMarkdownNSTextView {
+final class AutoHeightMarkdownTextView: DownTextView {
     private var lastMeasuredWidth: CGFloat = 0
 
     init() {
-        super.init(frame: .zero)
+        super.init(frame: .zero, styler: DownStyler(), layoutManager: DownLayoutManager())
         translatesAutoresizingMaskIntoConstraints = false
         appearance = AppTheme.windowAppearance
         drawsBackground = false
@@ -173,7 +275,6 @@ final class AutoHeightMarkdownTextView: CDMarkdownNSTextView {
         textContainerInset = .zero
         textContainer?.lineFragmentPadding = 0
         textContainer?.widthTracksTextView = true
-        roundAllCorners = true
         setContentHuggingPriority(.required, for: .vertical)
         setContentCompressionResistancePriority(.required, for: .vertical)
     }
@@ -182,8 +283,14 @@ final class AutoHeightMarkdownTextView: CDMarkdownNSTextView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Replaces the text storage directly. Setting `string` would route through
+    /// DownTextView.render(), but HaxPick parses via its own latest-wins loop.
+    func setAttributedString(_ attributedString: NSAttributedString) {
+        textStorage?.setAttributedString(attributedString)
+    }
+
     override var intrinsicContentSize: NSSize {
-        guard let textContainer else {
+        guard let textContainer, let layoutManager else {
             return NSSize(width: NSView.noIntrinsicMetric, height: 20)
         }
 
@@ -197,8 +304,8 @@ final class AutoHeightMarkdownTextView: CDMarkdownNSTextView {
             width: availableWidth,
             height: CGFloat.greatestFiniteMagnitude
         )
-        customLayoutManager.ensureLayout(for: textContainer)
-        let used = customLayoutManager.usedRect(for: textContainer)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
         return NSSize(
             width: NSView.noIntrinsicMetric,
             height: max(18, ceil(used.height + textContainerInset.height * 2))

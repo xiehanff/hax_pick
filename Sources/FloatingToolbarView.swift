@@ -32,9 +32,7 @@ final class FloatingToolbarView: NSView {
         currentMode = mode
         surface?.removeFromSuperview()
 
-        let cornerRadius: CGFloat = mode == .toolbar
-            ? FloatingPanelLayout.toolbarSize.height / 2
-            : AppTheme.resultCorner
+        let cornerRadius: CGFloat = AppTheme.resultCorner
 
         // The borderless window itself is transparent. Clip the root content
         // view as well as the glass view so the system never exposes square
@@ -52,13 +50,18 @@ final class FloatingToolbarView: NSView {
             let toolbar = makeToolbar()
             toolbar.translatesAutoresizingMaskIntoConstraints = false
             toolbar.applyContinuousCornerRadius(
-                FloatingPanelLayout.toolbarSize.height / 2,
+                AppTheme.resultCorner - AppTheme.glassContentInset,
                 background: AppTheme.panelContent
             )
-            toolbar.layer?.borderWidth = 0.75
-            toolbar.layer?.borderColor = AppTheme.border.cgColor
+            toolbar.layer?.borderWidth = 1.25
+            toolbar.layer?.borderColor = NSColor.white.withAlphaComponent(0.78).cgColor
             glass.contentView.addSubview(toolbar)
-            toolbar.pinEdges(to: glass.contentView)
+            NSLayoutConstraint.activate([
+                toolbar.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: AppTheme.glassContentInset),
+                toolbar.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -AppTheme.glassContentInset),
+                toolbar.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: AppTheme.glassContentInset),
+                toolbar.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -AppTheme.glassContentInset),
+            ])
         case .result:
             glass.contentView.addSubview(resultPanel)
             NSLayoutConstraint.activate([

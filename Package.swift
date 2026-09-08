@@ -10,13 +10,17 @@ let package = Package(
     // （否则 Bundle.main 没有图标资源，辅助功能授权也会按裸可执行文件另立身份）。
     // 请用 hax_pick.xcodeproj 运行；保留 targets 仅供 `swift build` / `swift test` 使用。
     dependencies: [
-        .package(url: "https://github.com/chrisdhaan/CDMarkdownKit.git", from: "5.0.0"),
+        // Down 为本地包（LocalPackages/Down）：上游 DownLayoutManager 的代码块
+        // 背景逐行满宽直角填充，已本地修补为整块圆角卡片 + 两侧留边。
+        .package(path: "LocalPackages/Down"),
+        .package(url: "https://github.com/JohnSundell/Splash.git", from: "0.16.0"),
     ],
     targets: [
         .executableTarget(
             name: "HaxPickApp",
             dependencies: [
-                .product(name: "CDMarkdownKit", package: "CDMarkdownKit"),
+                .product(name: "Down", package: "Down"),
+                .product(name: "Splash", package: "Splash"),
             ],
             path: "Sources",
             resources: [
