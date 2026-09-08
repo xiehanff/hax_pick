@@ -12,9 +12,13 @@ final class PanelSessionViewModel: ObservableObject {
     @Published private(set) var selectedText = ""
     @Published var followUpInput = ""
     @Published var isOriginalExpanded = false
+    /// 重新划词后,上一个对话是否可通过工具栏气泡入口重新进入
+    @Published private(set) var hasResumableConversation = false
     var onModeChanged: ((PanelMode) -> Void)?
 
-    private let aiSession: AiAgentSession
+    private var aiSession: AiAgentSession
+    private var archivedConversation: (session: AiAgentSession, sourceText: String)?
+    private let makeSession: () -> AiAgentSession
     private let onClose: () -> Void
     private var agentObservation: AnyCancellable?
     private var loadingObservation: AnyCancellable?
@@ -23,13 +27,20 @@ final class PanelSessionViewModel: ObservableObject {
     private var hasDeferredAgentUpdate = false
 
     init(service: DeepSeekService, onClose: @escaping () -> Void) {
-        self.aiSession = AiAgentSession(service: service)
+        self.makeSession = { AiAgentSession(service: service) }
+        self.aiSession = makeSession()
         self.onClose = onClose
         observeAgentSession()
     }
 
-    init(aiSession: AiAgentSession, onClose: @escaping () -> Void) {
+    init(
+        aiSession: AiAgentSession,
+        makeSession: (() -> AiAgentSession)? = nil,
+        onClose: @escaping () -> Void
+    ) {
         self.aiSession = aiSession
+        // 测试专用 init:可注入会话工厂;默认用空会话占位
+        self.makeSession = makeSession ?? { AiAgentSession(complete: { _ in "" }) }
         self.onClose = onClose
         observeAgentSession()
     }
@@ -118,7 +129,7 @@ final class PanelSessionViewModel: ObservableObject {
     }
 
     func reset(with text: String) {
-        aiSession.clear()
+        archiveActiveConversationIfNeeded()
         isDismissed = false
         resetStreamingPresentationState()
         selectedText = text
@@ -126,6 +137,42 @@ final class PanelSessionViewModel: ObservableObject {
         isOriginalExpanded = false
         mode = .toolbar
         onModeChanged?(.toolbar)
+    }
+
+    /// 重新划词不销毁正在进行的对话:有内容或仍在生成的会话被归档,
+    /// 其请求任务继续在后台跑;空会话直接清空复用。
+    private func archiveActiveConversationIfNeeded() {
+        let worthKeeping = aiSession.isLoading ||
+            aiSession.visibleMessages.contains { !$0.content.isEmpty }
+        guard worthKeeping else {
+            aiSession.clear()
+            return
+        }
+        archivedConversation = (aiSession, selectedText)
+        aiSession = makeSession()
+        observeAgentSession()
+        hasResumableConversation = true
+    }
+
+    /// 工具栏气泡入口:重新进入上一个对话窗,包括仍在生成的会话。
+    func resumeArchivedConversation() {
+        guard let archived = archivedConversation else { return }
+        let currentWorthKeeping = aiSession.isLoading ||
+            aiSession.visibleMessages.contains { !$0.content.isEmpty }
+        if currentWorthKeeping {
+            archivedConversation = (aiSession, selectedText)
+        } else {
+            archivedConversation = nil
+            hasResumableConversation = false
+        }
+        aiSession = archived.session
+        observeAgentSession()
+        selectedText = archived.sourceText
+        isDismissed = false
+        resetStreamingPresentationState()
+        mode = .result
+        onModeChanged?(.result)
+        objectWillChange.send()
     }
 
     func handlePrimaryAction(_ action: AiToolAction) {

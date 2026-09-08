@@ -102,7 +102,7 @@ final class AiMessageBubble: NSView {
         )
 
         let text = AutoHeightTextView()
-        text.font = .systemFont(ofSize: 13)
+        text.font = AppFont.body(ofSize: 13)
         text.textColor = AppTheme.textPrimary
         text.string = currentMessage.content
         let paragraph = NSMutableParagraphStyle()
@@ -131,6 +131,12 @@ final class AiMessageBubble: NSView {
             (streaming && message.expectsReasoning)
     }
 
+    /// 菊花表示"正在思考":请求仍在流式且回答正文尚未开始输出。
+    /// 推理结束、正文开始流式后应停止,不等整个请求结束。
+    private func isReasoningActive(for message: AiMessage) -> Bool {
+        isStreaming && message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func makeAssistantView() -> NSView {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
@@ -146,7 +152,7 @@ final class AiMessageBubble: NSView {
         if showReasoning {
             let disclosure = AiReasoningDisclosureView(
                 text: currentMessage.reasoning,
-                isStreaming: isStreaming,
+                isThinkingActive: isReasoningActive(for: currentMessage),
                 onLayoutChange: onLayoutChange
             )
             reasoningView = disclosure
@@ -188,13 +194,16 @@ final class AiMessageBubble: NSView {
                 needsImmediateLayout = true
             }
         } else if let reasoningView {
-            if reasoningView.update(text: currentMessage.reasoning, isStreaming: isStreaming) {
+            if reasoningView.update(
+                text: currentMessage.reasoning,
+                isThinkingActive: isReasoningActive(for: currentMessage)
+            ) {
                 needsImmediateLayout = true
             }
         } else {
             let disclosure = AiReasoningDisclosureView(
                 text: currentMessage.reasoning,
-                isStreaming: isStreaming,
+                isThinkingActive: isReasoningActive(for: currentMessage),
                 onLayoutChange: onLayoutChange
             )
             reasoningView = disclosure
@@ -265,7 +274,7 @@ final class AiMessageBubble: NSView {
 @MainActor
 private final class AiReasoningDisclosureView: NSView {
     private var text: String
-    private var isStreaming: Bool
+    private var isThinkingActive: Bool
     private let onLayoutChange: () -> Void
     private var isExpanded = false
 
@@ -277,9 +286,9 @@ private final class AiReasoningDisclosureView: NSView {
     private var expandedWidthConstraint: NSLayoutConstraint?
     private var expandedStackTrailingConstraint: NSLayoutConstraint?
 
-    init(text: String, isStreaming: Bool, onLayoutChange: @escaping () -> Void) {
+    init(text: String, isThinkingActive: Bool, onLayoutChange: @escaping () -> Void) {
         self.text = text
-        self.isStreaming = isStreaming
+        self.isThinkingActive = isThinkingActive
         self.onLayoutChange = onLayoutChange
         super.init(frame: .zero)
         appearance = AppTheme.windowAppearance
@@ -302,14 +311,14 @@ private final class AiReasoningDisclosureView: NSView {
     }
 
     @discardableResult
-    func update(text: String, isStreaming: Bool) -> Bool {
+    func update(text: String, isThinkingActive: Bool) -> Bool {
         let oldText = self.text
         let textChanged = text != oldText
         let emptyStateChanged = oldText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty !=
             text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         self.text = text
-        self.isStreaming = isStreaming
+        self.isThinkingActive = isThinkingActive
         refreshHeader()
 
         guard isExpanded else { return false }
@@ -361,11 +370,11 @@ private final class AiReasoningDisclosureView: NSView {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.appearance = AppTheme.windowAppearance
         button.isBordered = false
-        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.font = AppFont.ui(ofSize: 11, weight: .medium)
         button.setHaxTitle(
             "思考过程",
             color: AppTheme.textSecondary.withAlphaComponent(0.72),
-            font: .systemFont(ofSize: 11, weight: .medium)
+            font: AppFont.ui(ofSize: 11, weight: .medium)
         )
         button.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
         button.imagePosition = .imageTrailing
@@ -387,7 +396,7 @@ private final class AiReasoningDisclosureView: NSView {
     }
 
     private func refreshHeader() {
-        if isStreaming {
+        if isThinkingActive {
             spinner.startAnimation(nil)
             spinner.isHidden = false
         } else {
@@ -437,16 +446,26 @@ private final class AiReasoningDisclosureView: NSView {
 
         if trimmed.isEmpty {
             body = NSTextField.haxLabel(
-                isStreaming ? "正在思考…" : "暂无思考内容",
-                font: .systemFont(ofSize: 11.5),
+                isThinkingActive ? "正在思考…" : "暂无思考内容",
+                font: AppFont.ui(ofSize: 11.5),
                 color: AppTheme.textSecondary.withAlphaComponent(0.58)
             )
         } else {
-            // 思考内容用深色圆角卡片承载,与正文输出明确区分
+            // 思考内容用深色圆角卡片承载,与正文输出明确区分;
+            // 左侧竖条是"思考中"的视觉锚点
             let card = RoundedSurfaceView(
                 cornerRadius: 10,
-                backgroundColor: NSColor(hex: 0x22242B, alpha: 0.94)
+                backgroundColor: NSColor(hex: 0x1A1B1E)
             )
+
+            let stripe = NSView()
+            stripe.translatesAutoresizingMaskIntoConstraints = false
+            stripe.wantsLayer = true
+            stripe.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.22).cgColor
+            stripe.layer?.cornerRadius = 1.5
+            stripe.layer?.cornerCurve = .continuous
+            card.addSubview(stripe)
+
             let markdown = MarkdownWithCodeBlocksView(
                 text: text,
                 textColor: NSColor.white.withAlphaComponent(0.72),
@@ -455,7 +474,12 @@ private final class AiReasoningDisclosureView: NSView {
             )
             card.addSubview(markdown)
             NSLayoutConstraint.activate([
-                markdown.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
+                stripe.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 6),
+                stripe.topAnchor.constraint(equalTo: card.topAnchor, constant: 9),
+                stripe.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -9),
+                stripe.widthAnchor.constraint(equalToConstant: 1),
+
+                markdown.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
                 markdown.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -10),
                 markdown.topAnchor.constraint(equalTo: card.topAnchor, constant: 9),
                 markdown.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -9),
@@ -478,7 +502,7 @@ private final class AiReasoningDisclosureView: NSView {
             "收起思考过程 ↑",
             target: self,
             action: #selector(toggleExpanded),
-            font: .systemFont(ofSize: 10.5, weight: .medium),
+            font: AppFont.ui(ofSize: 10.5, weight: .medium),
             color: AppTheme.textSecondary.withAlphaComponent(0.70)
         )
         footer.addArrangedSubview(collapse)
@@ -501,7 +525,7 @@ private final class ThinkingIndicatorView: NSView {
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.startAnimation(nil)
-        let label = NSTextField.haxLabel("正在思考…", font: .systemFont(ofSize: 12), color: AppTheme.textSecondary)
+        let label = NSTextField.haxLabel("正在思考…", font: AppFont.ui(ofSize: 12), color: AppTheme.textSecondary)
         stack.addArrangedSubview(spinner)
         stack.addArrangedSubview(label)
         addSubview(stack)

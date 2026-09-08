@@ -7,7 +7,7 @@ final class PermissionGuideViewController: NSViewController {
     private let onClose: () -> Void
     private var observation: AnyCancellable?
 
-    private let subtitle = NSTextField.haxLabel("", font: .systemFont(ofSize: 12), color: AppTheme.textSecondary)
+    private let subtitle = NSTextField.haxLabel("", font: AppFont.ui(ofSize: 12), color: AppTheme.textSecondary)
     private let statusDot = NSView()
     private let repairButton = NSButton()
 
@@ -76,7 +76,7 @@ final class PermissionGuideViewController: NSViewController {
         textStack.alignment = .leading
         textStack.spacing = 2
         textStack.addArrangedSubview(
-            NSTextField.haxLabel("HaxPick 权限引导", font: .systemFont(ofSize: 16, weight: .bold))
+            NSTextField.haxLabel("HaxPick 权限引导", font: AppFont.ui(ofSize: 16, weight: .bold))
         )
         textStack.addArrangedSubview(subtitle)
         row.addArrangedSubview(textStack)
@@ -150,7 +150,7 @@ final class PermissionGuideViewController: NSViewController {
         badge.translatesAutoresizingMaskIntoConstraints = false
         badge.appearance = AppTheme.windowAppearance
         badge.alignment = .center
-        badge.font = .systemFont(ofSize: 13, weight: .bold)
+        badge.font = AppFont.ui(ofSize: 13, weight: .bold)
         badge.textColor = .white
         badge.wantsLayer = true
         badge.layer?.backgroundColor = AppTheme.accent.cgColor
@@ -162,8 +162,8 @@ final class PermissionGuideViewController: NSViewController {
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
-        text.addArrangedSubview(NSTextField.haxLabel(title, font: .systemFont(ofSize: 13, weight: .semibold)))
-        text.addArrangedSubview(NSTextField.haxLabel(detail, font: .systemFont(ofSize: 11), color: AppTheme.textSecondary))
+        text.addArrangedSubview(NSTextField.haxLabel(title, font: AppFont.ui(ofSize: 13, weight: .semibold)))
+        text.addArrangedSubview(NSTextField.haxLabel(detail, font: AppFont.ui(ofSize: 11), color: AppTheme.textSecondary))
         row.addArrangedSubview(badge)
         row.addArrangedSubview(text)
         return row

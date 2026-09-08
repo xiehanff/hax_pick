@@ -55,7 +55,7 @@ HaxPickApp
 - `AppState`：权限、设置、Keychain credential 编排、SelectionMonitor、Panel Controller、DeepSeekService 实例编排
 - `KeychainAPIKeyStore`：DeepSeek API Key 的 Generic Password 读写，不负责 UI 或迁移策略
 - `ToolbarPanelController`：NSPanel 创建、定位、聚焦、dismiss
-- `PanelSessionViewModel`：toolbar/result 模式、选中文本、输入框、原文展开状态，以及对 `AiAgentSession` 的 UI 投影
+- `PanelSessionViewModel`：toolbar/result 模式、选中文本、输入框、原文展开状态，以及对 `AiAgentSession` 的 UI 投影。重新划词时若当前会话有内容或仍在生成，会话被归档（请求任务后台继续），工具栏气泡图标可重新进入上一个对话（`resumeArchivedConversation`，单归档槽位，划词原文随会话一起归档/恢复）
 - `AiAgentSession`：本地完整 AI history、发送前 request window、streaming draft、generation、cancel、stop、retry、rollback
 - `AiHistoryWindow`：只塑形发送给模型的 request snapshot，不删除本地 conversation history
 - `AiPrompts`：system prompt / 首次工具 prompt

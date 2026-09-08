@@ -29,7 +29,7 @@ enum AppTheme {
     static let resultCorner: CGFloat = 24
     static let menuCorner: CGFloat = 18
     static let permissionCorner: CGFloat = 20
-    static let glassContentInset: CGFloat = 10
+    static let glassContentInset: CGFloat = 12
 }
 
 // MARK: - Floating panel geometry
@@ -372,7 +372,7 @@ extension NSButton {
         _ title: String,
         target: AnyObject?,
         action: Selector?,
-        font: NSFont = .systemFont(ofSize: 12, weight: .semibold),
+        font: NSFont = AppFont.ui(ofSize: 12, weight: .semibold),
         color: NSColor = AppTheme.textPrimary
     ) -> NSButton {
         let button = NSButton(title: title, target: target, action: action)

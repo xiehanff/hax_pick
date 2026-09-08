@@ -81,32 +81,41 @@ public class DownLayoutManager: NSLayoutManager {
 
             // HaxPick patch: instead of filling one full-bleed rectangle per
             // line (which runs into both container edges with square corners),
-            // union the block's line fragments and paint a single rounded card
-            // inset from both sides of the container.
-            var blockRect: CGRect?
+            // paint a single rounded card. Horizontal extent comes from the
+            // line rects (used rects differ per line and would leave a stepped
+            // left edge); vertical extent comes from the used rects (line rects
+            // fold paragraphSpacingBefore/After of neighbouring paragraphs in,
+            // which would make the card swallow the outer margins and glue
+            // itself to the surrounding text).
+            var horizontal: (minX: CGFloat, maxX: CGFloat)?
+            var vertical: (minY: CGFloat, maxY: CGFloat)?
             enumerateLineFragments(forGlyphRange: glyphRange) { lineRect, lineUsedRect, _, _, _ in
-                let line = CGRect(
-                    x: min(lineUsedRect.minX, lineRect.minX) - inset,
-                    y: lineRect.minY,
-                    width: lineRect.width,
-                    height: lineRect.height
-                )
-                blockRect = blockRect?.union(line) ?? line
+                horizontal = horizontal.map { current in
+                    (min(current.minX, lineRect.minX), max(current.maxX, lineRect.maxX))
+                } ?? (lineRect.minX, lineRect.maxX)
+                vertical = vertical.map { current in
+                    (min(current.minY, lineUsedRect.minY), max(current.maxY, lineUsedRect.maxY))
+                } ?? (lineUsedRect.minY, lineUsedRect.maxY)
             }
 
-            guard var cardRect = blockRect else { return }
+            guard let h = horizontal, let v = vertical else { return }
 
             // HaxPick patch: extra vertical breathing room so code lines never
             // touch the card edges.
             let verticalPadding = max(10, inset)
-            cardRect.origin.y -= verticalPadding
-            cardRect.size.height += verticalPadding * 2
+            var cardRect = CGRect(
+                x: h.minX + inset,
+                y: v.minY - verticalPadding,
+                width: h.maxX - h.minX - inset * 2,
+                height: v.maxY - v.minY + verticalPadding * 2
+            )
 
             if let container = textContainer(forGlyphAt: glyphRange.location, effectiveRange: nil) {
                 let minX = container.lineFragmentPadding + inset
                 let maxX = container.size.width - inset
-                cardRect.origin.x = max(cardRect.minX, minX)
-                cardRect.size.width = min(cardRect.width, max(0, maxX - cardRect.minX))
+                let clampedX = max(cardRect.minX, minX)
+                cardRect.origin.x = clampedX
+                cardRect.size.width = min(cardRect.width, max(0, maxX - clampedX))
             }
 
             let radius = min(6, cardRect.width / 2, cardRect.height / 2)

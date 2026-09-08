@@ -50,7 +50,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         }
         panel.setFrameOrigin(clampedOrigin(for: screenPoint, mode: viewModel.mode))
         panel.hidesOnDeactivate = false
-        panel.isMovableByWindowBackground = viewModel.mode == .toolbar
+        panel.isMovableByWindowBackground = true
         panel.invalidateShadow()
         present(panel: panel, for: viewModel.mode)
         self.panel = panel
@@ -66,7 +66,7 @@ final class ToolbarPanelController: NSObject, NSWindowDelegate {
         rootView?.refreshModeIfNeeded(force: true)
         panel.setFrameOrigin(clampedOrigin(for: currentAnchorPoint, mode: mode))
         panel.hidesOnDeactivate = false
-        panel.isMovableByWindowBackground = mode == .toolbar
+        panel.isMovableByWindowBackground = true
         panel.invalidateShadow()
         present(panel: panel, for: mode)
     }

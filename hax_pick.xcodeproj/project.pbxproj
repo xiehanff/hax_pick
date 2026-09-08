@@ -29,10 +29,12 @@
 		D00400000000000000000001 /* AiAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00400000000000000000001 /* AiAgentSession.swift */; };
 		D00500000000000000000001 /* AiMessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00500000000000000000001 /* AiMessageBubble.swift */; };
 		D00600000000000000000001 /* AiChatInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00600000000000000000001 /* AiChatInputBar.swift */; };
+		D00700000000000000000077 /* AppFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00700000000000000000077 /* AppFont.swift */; };
 		D00700000000000000000001 /* ResultPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00700000000000000000001 /* ResultPanelView.swift */; };
 		ED30EBA5963281F2E4F8058A /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */; };
 		F10000000000000000000001 /* HaxIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* HaxIcon.swift */; };
-		F10100000000000000000001 /* HaxIcons in Resources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000002 /* HaxIcons */; };
+		F10100000000000000000001 /* HaxIcons in Resources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000000002 /* HaxIcons */; };
+		F10100000000000000000011 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000012 /* Fonts */; };
 		F20000000000000000000001 /* Down in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000002 /* Down */; };
 		F20000000000000000000006 /* Splash in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000005 /* Splash */; };
 /* End PBXBuildFile section */
@@ -62,9 +64,11 @@
 		E00400000000000000000001 /* AiAgentSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiAgentSession.swift; path = Sources/AiAgentSession.swift; sourceTree = "<group>"; };
 		E00500000000000000000001 /* AiMessageBubble.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiMessageBubble.swift; path = Sources/AiMessageBubble.swift; sourceTree = "<group>"; };
 		E00600000000000000000001 /* AiChatInputBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AiChatInputBar.swift; path = Sources/AiChatInputBar.swift; sourceTree = "<group>"; };
+		E00700000000000000000077 /* AppFont.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppFont.swift; path = Sources/AppFont.swift; sourceTree = "<group>"; };
 		E00700000000000000000001 /* ResultPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ResultPanelView.swift; path = Sources/ResultPanelView.swift; sourceTree = "<group>"; };
 		F10000000000000000000002 /* HaxIcon.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HaxIcon.swift; path = Sources/HaxIcon.swift; sourceTree = "<group>"; };
 		F10100000000000000000002 /* HaxIcons */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = HaxIcons; path = Sources/Resources/HaxIcons; sourceTree = "<group>"; };
+		F10100000000000000000012 /* Fonts */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = Fonts; path = Sources/Resources/Fonts; sourceTree = "<group>"; };
 		FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SelectionMonitor.swift; path = Sources/SelectionMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -106,8 +110,10 @@
 				2B7E8E6F3A66451D9B5B3C00 /* AppBrandIcon.swift */,
 				F10000000000000000000002 /* HaxIcon.swift */,
 				F10100000000000000000002 /* HaxIcons */,
+				F10100000000000000000012 /* Fonts */,
 				E00400000000000000000001 /* AiAgentSession.swift */,
 				E00600000000000000000001 /* AiChatInputBar.swift */,
+				E00700000000000000000077 /* AppFont.swift */,
 				E00100000000000000000001 /* AiMessage.swift */,
 				E00500000000000000000001 /* AiMessageBubble.swift */,
 				E00300000000000000000001 /* AiPrompts.swift */,
@@ -218,6 +224,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F10100000000000000000001 /* HaxIcons in Resources */,
+				F10100000000000000000101 /* Fonts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,7 +243,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "mkdir -p \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources\"\ncp \"$SRCROOT/hax_pick/MenuBarIcon.png\" \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/\"\ncp \"$SRCROOT/hax_pick/MenuBarIcon@2x.png\" \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/\"\ncp \"$SRCROOT/hax_pick/AppIcon.icns\" \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/\"";
+			shellScript = "mkdir -p \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources\"\ncp \"$SRCROOT/hax_pick/MenuBarIcon.png\" \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/\"\ncp \"$SRCROOT/hax_pick/MenuBarIcon@2x.png\" \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/\"\ncp \"$SRCROOT/hax_pick/AppIcon.icns\" \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/\"\ncp -R \"$SRCROOT/Sources/Resources/Fonts\" \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/\"\ncp -R \"$SRCROOT/Sources/Resources/HaxIcons\" \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -250,6 +257,7 @@
 				2B7E8E6F3A66451D9B5B3C01 /* AppBrandIcon.swift in Sources */,
 				D00400000000000000000001 /* AiAgentSession.swift in Sources */,
 				D00600000000000000000001 /* AiChatInputBar.swift in Sources */,
+				D00700000000000000000077 /* AppFont.swift in Sources */,
 				F10000000000000000000001 /* HaxIcon.swift in Sources */,
 				D00100000000000000000001 /* AiMessage.swift in Sources */,
 				D00500000000000000000001 /* AiMessageBubble.swift in Sources */,

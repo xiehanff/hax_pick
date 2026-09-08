@@ -6,9 +6,9 @@ final class ResultPanelView: NSView {
     private let viewModel: PanelSessionViewModel
     private var observation: AnyCancellable?
 
-    private let headerTitle = NSTextField.haxLabel("", font: .systemFont(ofSize: 13.5, weight: .semibold))
+    private let headerTitle = NSTextField.haxLabel("", font: AppFont.ui(ofSize: 13.5, weight: .semibold))
     private let statusDot = NSView()
-    private let statusLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 9.5, weight: .medium), color: AppTheme.textSecondary)
+    private let statusLabel = NSTextField.haxLabel("", font: AppFont.ui(ofSize: 9.5, weight: .medium), color: AppTheme.textSecondary)
     private lazy var closeButton = CircleIconButton(
         symbolName: "xmark",
         accessibilityDescription: "关闭",
@@ -72,6 +72,7 @@ final class ResultPanelView: NSView {
 
     private func buildUI() {
         wantsLayer = true
+        // 同心圆角:内圆角 = 外圆角 - 玻璃外缘宽度
         applyContinuousCornerRadius(
             AppTheme.resultCorner - AppTheme.glassContentInset,
             background: AppTheme.panelContent
@@ -97,7 +98,7 @@ final class ResultPanelView: NSView {
         returnToLatestButton.translatesAutoresizingMaskIntoConstraints = false
         returnToLatestButton.appearance = AppTheme.windowAppearance
         returnToLatestButton.title = "↓  回到最新"
-        returnToLatestButton.font = .systemFont(ofSize: 10.5, weight: .medium)
+        returnToLatestButton.font = AppFont.ui(ofSize: 10.5, weight: .medium)
         returnToLatestButton.bezelStyle = .rounded
         returnToLatestButton.target = self
         returnToLatestButton.action = #selector(returnToLatest)
@@ -129,8 +130,7 @@ final class ResultPanelView: NSView {
             scrollView.bottomAnchor.constraint(equalTo: inputBar.topAnchor),
 
             returnToLatestButton.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -12),
-            returnToLatestButton.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -10),
-        ])
+            returnToLatestButton.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -10),        ])
     }
 
     private func makeHeader() -> NSView {
@@ -229,9 +229,6 @@ final class ResultPanelView: NSView {
         messageViews = messageViews.filter { validIDs.contains($0.key) }
 
         var structure: [String] = []
-        if viewModel.showsSourceTurn {
-            structure.append("source:\(viewModel.requestRevision):\(viewModel.isOriginalExpanded)")
-        }
 
         for message in visibleMessages {
             let isStreaming = message.id == viewModel.streamingAssistantID
@@ -273,9 +270,6 @@ final class ResultPanelView: NSView {
         currentStructure = structure
 
         var desiredViews: [NSView] = []
-        if viewModel.showsSourceTurn {
-            desiredViews.append(SourceTurnView(viewModel: viewModel))
-        }
         for message in visibleMessages {
             if let bubble = messageViews[message.id] {
                 desiredViews.append(bubble)
@@ -452,10 +446,16 @@ private final class ConversationDocumentView: NSView {
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        // documentView 以 frame 驱动宽度,创建瞬间宽度为 0;required 的双边边距
+        // 在 0 宽度下不可满足,降到 999 避免 Autolayout 冲突日志。
+        let leading = stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+        // 右侧多留 12pt 给覆盖式垂直滚动条,内容不被 scroller 挡住
+        let trailing = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28)
+        leading.priority = .init(999)
+        trailing.priority = .init(999)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            // 右侧多留 12pt 给覆盖式垂直滚动条,内容不被 scroller 挡住
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
+            leading,
+            trailing,
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
         ])
     }
@@ -495,76 +495,6 @@ private final class ConversationDocumentView: NSView {
 }
 
 @MainActor
-private final class SourceTurnView: NSView {
-    private let viewModel: PanelSessionViewModel
-
-    init(viewModel: PanelSessionViewModel) {
-        self.viewModel = viewModel
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        applyContinuousCornerRadius(12, background: NSColor(hex: 0x303136, alpha: 0.96))
-
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 7
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-        ])
-
-        let action = NSTextField.haxLabel(
-            viewModel.currentAction?.rawValue ?? "原文",
-            font: .systemFont(ofSize: 9.5, weight: .semibold),
-            color: NSColor.white.withAlphaComponent(0.56)
-        )
-        stack.addArrangedSubview(action)
-
-        let text = AutoHeightTextView()
-        text.font = .systemFont(ofSize: 12.5)
-        text.textColor = NSColor.white.withAlphaComponent(0.82)
-        let source = viewModel.selectedText
-        if !viewModel.isOriginalExpanded && source.count > 360 {
-            text.string = String(source.prefix(360)) + "…"
-        } else {
-            text.string = source
-        }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 3
-        text.defaultParagraphStyle = paragraph
-        stack.addArrangedSubview(text)
-        text.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-
-        if source.count > 180 {
-            let button = NSButton(
-                title: viewModel.isOriginalExpanded ? "收起" : "展开原文",
-                target: self,
-                action: #selector(toggleOriginal)
-            )
-            button.isBordered = false
-            button.font = .systemFont(ofSize: 10.5, weight: .medium)
-            button.setHaxTitle(
-                viewModel.isOriginalExpanded ? "收起" : "展开原文",
-                color: NSColor.white.withAlphaComponent(0.70),
-                font: .systemFont(ofSize: 10.5, weight: .medium)
-            )
-            stack.addArrangedSubview(button)
-        }
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func toggleOriginal() {
-        viewModel.toggleOriginalExpanded()
-    }
-}
-
 private final class PanelThinkingView: NSView {
     init() {
         super.init(frame: .zero)
@@ -579,7 +509,7 @@ private final class PanelThinkingView: NSView {
         spinner.controlSize = .small
         spinner.startAnimation(nil)
         row.addArrangedSubview(spinner)
-        row.addArrangedSubview(NSTextField.haxLabel("正在思考…", font: .systemFont(ofSize: 12), color: AppTheme.textSecondary))
+        row.addArrangedSubview(NSTextField.haxLabel("正在思考…", font: AppFont.ui(ofSize: 12), color: AppTheme.textSecondary))
         addSubview(row)
         row.pinEdges(to: self)
     }
@@ -599,8 +529,8 @@ private final class ErrorBubbleView: NSView {
         stack.alignment = .leading
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(NSTextField.haxLabel("⚠ 请求失败", font: .systemFont(ofSize: 11.5, weight: .semibold), color: .systemOrange))
-        stack.addArrangedSubview(NSTextField.haxLabel(text, font: .systemFont(ofSize: 11.5), color: AppTheme.textSecondary))
+        stack.addArrangedSubview(NSTextField.haxLabel("⚠ 请求失败", font: AppFont.ui(ofSize: 11.5, weight: .semibold), color: .systemOrange))
+        stack.addArrangedSubview(NSTextField.haxLabel(text, font: AppFont.ui(ofSize: 11.5), color: AppTheme.textSecondary))
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 11),
@@ -625,7 +555,7 @@ private final class FollowUpSuggestionsView: NSView {
         stack.alignment = .leading
         stack.spacing = 7
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(NSTextField.haxLabel("继续追问", font: .systemFont(ofSize: 10, weight: .semibold), color: AppTheme.textSecondary))
+        stack.addArrangedSubview(NSTextField.haxLabel("继续追问", font: AppFont.ui(ofSize: 10, weight: .semibold), color: AppTheme.textSecondary))
 
         for suggestion in suggestions {
             let button = SuggestionPill(title: suggestion, action: { onTap(suggestion) })
@@ -668,7 +598,8 @@ private final class SuggestionPill: NSView {
         button.attributedTitle = NSAttributedString(
             string: title,
             attributes: [
-                .font: NSFont.systemFont(ofSize: 10.5),
+                // 与 Markdown 正文同款:英文 Google Sans Mono、中文 OPPO Sans
+                .font: AppFont.body(ofSize: 10.5),
                 .foregroundColor: AppTheme.textSecondary,
                 .paragraphStyle: paragraph,
             ]
@@ -739,8 +670,8 @@ private final class ClosureButton: NSButton {
         self.title = title
         isBordered = false
         focusRingType = .none
-        font = .systemFont(ofSize: 10.5, weight: .medium)
-        setHaxTitle(title, color: AppTheme.textSecondary, font: .systemFont(ofSize: 10.5, weight: .medium))
+        font = AppFont.ui(ofSize: 10.5, weight: .medium)
+        setHaxTitle(title, color: AppTheme.textSecondary, font: AppFont.ui(ofSize: 10.5, weight: .medium))
         target = self
         action = #selector(runHandler)
     }
@@ -753,3 +684,4 @@ private final class ClosureButton: NSButton {
         handler()
     }
 }
+

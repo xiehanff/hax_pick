@@ -172,16 +172,16 @@ final class MarkdownWithCodeBlocksView: NSView {
         // Let Down own paragraph metrics. HaxPick only customizes the product
         // palette and type scale; line/paragraph spacing stays with the library
         // so headings, lists, prose and code keep coherent defaults.
-        let mono = NSFont.monospacedSystemFont(ofSize: max(11, fontSize - 1), weight: .regular)
+        let mono = AppFont.mono(ofSize: max(11, fontSize - 1))
 
         let fonts = StaticFontCollection(
-            heading1: .boldSystemFont(ofSize: fontSize + 6),
-            heading2: .boldSystemFont(ofSize: fontSize + 4),
-            heading3: .boldSystemFont(ofSize: fontSize + 2),
-            heading4: .boldSystemFont(ofSize: fontSize + 1),
-            heading5: .boldSystemFont(ofSize: fontSize),
-            heading6: .boldSystemFont(ofSize: fontSize),
-            body: .systemFont(ofSize: fontSize),
+            heading1: AppFont.body(ofSize: fontSize + 6, weight: .bold),
+            heading2: AppFont.body(ofSize: fontSize + 4, weight: .bold),
+            heading3: AppFont.body(ofSize: fontSize + 2, weight: .semibold),
+            heading4: AppFont.body(ofSize: fontSize + 1, weight: .semibold),
+            heading5: AppFont.body(ofSize: fontSize, weight: .semibold),
+            heading6: AppFont.body(ofSize: fontSize, weight: .semibold),
+            body: AppFont.body(ofSize: fontSize),
             code: mono,
             listItemPrefix: .monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
         )
@@ -200,7 +200,7 @@ final class MarkdownWithCodeBlocksView: NSView {
             quoteStripe: AppTheme.border,
             thematicBreak: AppTheme.border,
             listItemPrefix: AppTheme.textSecondary,
-            codeBlockBackground: NSColor(hex: 0x2E3038, alpha: 0.96)
+            codeBlockBackground: NSColor(hex: 0x1A1B1E)
         )
 
         return HaxMarkdownStyler(
@@ -214,18 +214,31 @@ final class MarkdownWithCodeBlocksView: NSView {
         )
     }
 
-    /// Down 的默认 code 段落样式没有行距,代码行在卡片里挤在一起;
-    /// 这里给 code 段落补行距、卡内左右边距和与上下文的间距,
+    /// Down 的默认样式没有行距(标题换行、代码行都会挤在一起);
+    /// 这里给标题和 code 段落补行距、代码块卡内左右边距和与上下文的间距,
     /// 其余样式继续沿用 Down 默认。(inset(by:) 还会在此基础上 +8)
     private static func makeParagraphStyles() -> StaticParagraphStyleCollection {
         var styles = StaticParagraphStyleCollection()
+
+        let headingStyle = NSMutableParagraphStyle()
+        headingStyle.paragraphSpacing = 8
+        headingStyle.lineSpacing = 5
+        styles.heading1 = headingStyle
+        styles.heading2 = headingStyle
+        styles.heading3 = headingStyle
+        styles.heading4 = headingStyle
+        styles.heading5 = headingStyle
+        styles.heading6 = headingStyle
+
         let codeStyle = NSMutableParagraphStyle()
         codeStyle.paragraphSpacingBefore = 12
         codeStyle.paragraphSpacing = 12
         codeStyle.lineSpacing = 3
         codeStyle.headIndent = 8
         codeStyle.firstLineHeadIndent = 8
-        codeStyle.tailIndent = 8
+        // tailIndent 是从容器左侧算的绝对位置而非右边距;解析时宽度未知,
+        // 先放开换行,由 AutoHeightMarkdownTextView 按实际宽度改写(见 harmonize…)。
+        codeStyle.tailIndent = .greatestFiniteMagnitude
         styles.code = codeStyle
         return styles
     }
@@ -287,6 +300,35 @@ final class AutoHeightMarkdownTextView: DownTextView {
     /// DownTextView.render(), but HaxPick parses via its own latest-wins loop.
     func setAttributedString(_ attributedString: NSAttributedString) {
         textStorage?.setAttributedString(attributedString)
+        harmonizeCodeBlockTailIndent()
+    }
+
+    /// tailIndent 是"从容器左侧算的绝对位置",解析时无法知道渲染宽度。
+    /// 代码块段落(等宽字体且带 headIndent 的段落)在知道实际宽度后,
+    /// 把 tailIndent 改写为 宽度-8,实现卡片内右侧 8pt 边距。
+    private func harmonizeCodeBlockTailIndent() {
+        guard let storage = textStorage, bounds.width > 2, storage.length > 0 else { return }
+        let target = bounds.width - 8
+        let whole = NSRange(location: 0, length: storage.length)
+
+        storage.beginEditing()
+        storage.enumerateAttribute(.font, in: whole) { value, range, _ in
+            guard let font = value as? NSFont, font.isFixedPitch else { return }
+            let paragraphRange = (storage.string as NSString).paragraphRange(for: range)
+            guard
+                let style = storage.attribute(
+                    .paragraphStyle,
+                    at: paragraphRange.location,
+                    effectiveRange: nil
+                ) as? NSParagraphStyle,
+                style.headIndent > 0,
+                abs(style.tailIndent - target) > 0.5
+            else { return }
+            let mutable = style.mutableCopy() as! NSMutableParagraphStyle
+            mutable.tailIndent = target
+            storage.addAttribute(.paragraphStyle, value: mutable, range: paragraphRange)
+        }
+        storage.endEditing()
     }
 
     override var intrinsicContentSize: NSSize {
@@ -316,6 +358,7 @@ final class AutoHeightMarkdownTextView: DownTextView {
         super.layout()
         let width = bounds.width
         if width > 2, abs(width - lastMeasuredWidth) > 0.5 {
+            harmonizeCodeBlockTailIndent()
             invalidateIntrinsicContentSize()
         }
     }

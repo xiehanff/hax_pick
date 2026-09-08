@@ -9,6 +9,19 @@
 ## [Unreleased]
 
 ### 变更
+- **内容层圆角改为同心方案**:结果窗/工具栏/设置窗的白色内容层圆角 = 外圆角 24pt − 玻璃外缘 12pt = 12pt(Apple concentric corners 标准,内外曲线共享圆心、边缘留白厚度恒定);修复设置窗首次打开出现在屏幕底部的问题(center() 早于内容加载,borderless 窗口尺寸变化锚定左下角导致偏移,现改为先装内容再居中并在每次 showWindow 时居中)。
+- **设置窗口对齐对话窗口 UI**:改为 borderless 玻璃窗口(HaxGlassView + 白色内容层 + 12pt 玻璃外缘 + 24pt 圆角),顶部为品牌图标 + 标题 + 右上角单个圆形关闭按钮,可拖背景移动;移除系统标题栏/系统关闭按钮与内容区重复大标题,内容区背景透明由内容层承载。
+- **追问建议胶囊字体**:胶囊内英文改用 Google Sans Mono(中文 OPPO Sans 级联),与 Markdown 正文一致。
+- **思考卡片左侧竖条**:思考过程展开卡片左缘增加 3pt 半透明白色圆角竖条,呼应引用块的“思考中”视觉;思考文字相应右移。
+- **其他 UI 字体统一 OPPO Sans**:工具栏按钮、结果窗标题/状态/输入框/建议胶囊/思考标签、菜单栏设置页、权限引导页等全部 UI 文字(中英文)改用 OPPO Sans(按字重映射 ttf 内 Light/Regular/Medium/SemiBold/Bold 实例);Markdown 正文字体策略不变。
+- **Markdown 正文字体切换**:对话内 Markdown 正文改为拉丁字符 Google Sans Mono + 中文级联回退 OPPO Sans(经 `AppFont.body` 字体描述符级联实现,粗体合成);代码块/行内代码同为 Google Sans Mono。
+- **内置字体接入**:从 Plume PDF 内置字体提取 `GoogleSansMono-Regular.ttf`、`OPPO_Sans_4.0.ttf` 打包至 `Sources/Resources/Fonts`,新增 `AppFont` 负责 bundle 字体注册与构造;Fonts/HaxIcons 加入 xcodeproj Copy 脚本并修复多项 25 位非法对象 ID(`AiChatInputBar`/`HaxIcons` 此前在 Xcode 构建中被静默丢弃)。
+- **移除结果窗顶部划词原文展示区**:`SourceTurnView` 及其结构 diff 条目删除,对话直接以 AI 回复开始。
+- **对话窗可移动、边缘缩放重做**:`isMovableByWindowBackground` 全模式开启;缩放改为窗口四边 + 四角命中(根视图 12pt 边带),macOS 15+ 使用系统对角缩放光标(旧系统退化为左右/上下),拖拽方向按被拖动边缘为锚点计算,最小 460×400、不超过屏幕;移除右下角十字光标把手。
+- **玻璃外缘恢复 12pt**:`glassContentInset` 从 10pt 恢复为旧版的 12pt;思考卡片左侧竖条从 3pt 最终减为 1pt。
+- **工具栏“回到上一个对话”气泡入口**:重新划词归档有内容/进行中的会话(任务后台继续),点击气泡图标可重新进入上一个对话窗;新增 `ConversationArchiveTests`。
+- **深色卡片背景提亮**:代码块卡片(0x2E3038@0.96)与思考过程卡片(0x22242B@0.94)带透明度叠加后观感接近纯黑;改为不透明的更亮深灰(代码块与思考卡统一为不透明纯黑 #1A1B1E);思考卡与代码块的左缘阶梯状渲染已修复(横向改用 lineRect 求宽度,纵向保留 usedRect)。
+- **Markdown 标题行距**:标题段落补 5pt 行距,多行标题不再挤在一起。
 - **代码块边距补齐**:本地 Down 补丁修复 `inset(by:)` 将 `tailIndent` 写死为负值导致代码文本越过卡片右缘的问题;code 段落补卡内左右各 8pt、与上下文各 20pt(视觉约 10pt)的间距。
 - **思考过程展开样式**:箭头改为 SF Symbol(`chevron.right`/`chevron.down`,按钮内自动垂直居中,与文字同色);展开的思考内容放入深色圆角卡片(0x22242B),文字改浅色,与正文输出明确区分。
 - **工具栏视觉对齐结果窗口**:工具栏不再贴满玻璃层,四周留 10pt 玻璃外缘,与结果面板同款 24pt 外圆角、白色内容层与白色描边(加粗到 1.25pt);整体尺寸从 420×48 增加到 440×56。
@@ -39,8 +52,7 @@
 - **共享工具层**：`HaxPickPanel`（合并两个 `NSPanel` 子类）、`AppTheme.makeClippedHostingView()`、`NSPoint` 几何扩展。
 - **剪贴板兜底单测**：补充文本上下文判定、外部写入保护、marker 等待逻辑，以及 `SelectionMonitor` 对 AX/剪贴板双通道分支的单元测试。
 
-### 变更
-
+- **移除结果窗顶部的划词原文展示区**:`SourceTurnView` 及其结构 diff 条目删除,对话直接以用户动作/AI 回复开始;`PanelSessionViewModel.showsSourceTurn`/`isOriginalExpanded` 保留但不再驱动 UI。- **移除结果窗顶部的划词原文展示区**:`SourceTurnView` 及其结构 diff 条目删除,对话直接以用户动作/AI 回复开始;`PanelSessionViewModel.showsSourceTurn`/`isOriginalExpanded` 保留但不再驱动 UI。
 - **工具栏样式与 AI 对话窗口对齐**：改为与结果侧栏一致的玻璃视觉——`HaxGlassSurface` 玻璃外壳 + `panelContent` 白色微透明内容层 + 白色内描边；移除上半环淡蓝彩虹背景与模糊副本实现（含 `ToolbarRainbowBackground`）。
 - **托盘回归系统样式**：托盘菜单改为标准 `MenuBarExtra(.menu)`，仅保留「设置…」「退出」；「设置」打开系统样式的设置窗口（grouped Form），内含辅助功能权限、模型选择、DeepSeek API Key 与版本号。移除 `TrayPanelController` 自建面板、`HaxGlassSurface` 托盘包装与自定义卡片视觉。
 - **工具栏移除边框**：保留纯白背景和全圆角，彻底移除边框，避免边缘锯齿和裁剪异常。

@@ -18,7 +18,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
 
     private let inputScrollView = NSScrollView()
     private let inputTextView = ChatInputTextView()
-    private let placeholderLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 13), color: AppTheme.textSecondary.withAlphaComponent(0.62))
+    private let placeholderLabel = NSTextField.haxLabel("", font: AppFont.ui(ofSize: 13), color: AppTheme.textSecondary.withAlphaComponent(0.62))
     private let newSessionButton = NSButton()
     private let actionButton = NSButton()
 
@@ -89,7 +89,7 @@ final class AiChatInputBar: NSView, NSTextViewDelegate {
         inputTextView.appearance = AppTheme.windowAppearance
         inputTextView.delegate = self
         inputTextView.drawsBackground = false
-        inputTextView.font = .systemFont(ofSize: 13)
+        inputTextView.font = AppFont.ui(ofSize: 13)
         inputTextView.textColor = AppTheme.textPrimary
         inputTextView.insertionPointColor = AppTheme.textPrimary
         inputTextView.isRichText = false

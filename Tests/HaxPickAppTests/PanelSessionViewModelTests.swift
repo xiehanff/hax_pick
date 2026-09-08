@@ -67,7 +67,7 @@ final class PanelSessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.followUpInput, "")
     }
 
-    func testResetDiscardsLateResultFromPreviousSelection() async throws {
+    func testResetArchivesLateResultIntoPreviousConversation() async throws {
         let responder = DeferredPanelResponder()
         let viewModel = makeViewModel(responder: responder)
 
@@ -75,7 +75,9 @@ final class PanelSessionViewModelTests: XCTestCase {
         viewModel.handlePrimaryAction(.translate)
         try await waitForPendingRequest(in: responder)
 
+        // 重新划词:上一个仍在请求中的对话被归档,迟到结果不进入新会话
         viewModel.reset(with: "selection-b")
+        XCTAssertTrue(viewModel.hasResumableConversation)
         responder.succeed("result-a")
 
         viewModel.handlePrimaryAction(.translate)
@@ -87,6 +89,14 @@ final class PanelSessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.conversationMessages.map(\.content), ["result-b"])
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertEqual(viewModel.statusHint, "已完成")
+
+        // 气泡入口应能找回迟到的 result-a
+        try await waitUntil { viewModel.hasResumableConversation || true }
+        viewModel.resumeArchivedConversation()
+        try await waitUntil {
+            viewModel.conversationMessages.contains { $0.content == "result-a" }
+        }
+        XCTAssertEqual(viewModel.selectedText, "selection-a")
     }
 
     func testDismissalDiscardsLateResultAfterSessionReuse() async throws {
@@ -214,7 +224,15 @@ final class PanelSessionViewModelTests: XCTestCase {
         let session = AiAgentSession(complete: { messages in
             try await responder.complete(messages)
         })
-        return PanelSessionViewModel(aiSession: session, onClose: {})
+        return PanelSessionViewModel(
+            aiSession: session,
+            makeSession: {
+                AiAgentSession(complete: { messages in
+                    try await responder.complete(messages)
+                })
+            },
+            onClose: {}
+        )
     }
 
     private func waitForPendingRequest(in responder: DeferredPanelResponder) async throws {

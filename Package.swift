@@ -25,6 +25,7 @@ let package = Package(
             path: "Sources",
             resources: [
                 .copy("Resources/HaxIcons"),
+                .copy("Resources/Fonts"),
             ]
         ),
         .testTarget(

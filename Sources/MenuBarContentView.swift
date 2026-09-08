@@ -29,23 +29,148 @@ private final class APIKeySecureTextField: NSSecureTextField {
 @MainActor
 final class SettingsWindowController: NSWindowController {
     init(appState: AppState) {
-        let controller = SettingsViewController(appState: appState)
+        // 与对话窗口同款:borderless 玻璃窗口 + 白色内容层 + 圆形关闭按钮,
+        // 不再使用系统标题栏 panel
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 460),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 540),
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.appearance = AppTheme.windowAppearance
         window.title = "HaxPick 设置"
-        window.center()
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.contentViewController = controller
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.isMovableByWindowBackground = true
+        // 先装内容再居中:内容视图加载会改窗口尺寸,borderless 窗口尺寸变化
+        // 时锚定左下角,先 center() 会被拽偏到屏幕底部
+        window.contentViewController = SettingsGlassViewController(
+            content: SettingsViewController(appState: appState)
+        )
+        window.center()
         super.init(window: window)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func showWindow(_ sender: Any?) {
+        window?.center()
+        super.showWindow(sender)
+    }
+}
+
+/// 玻璃外壳 + 白色内容层,顶部标题行 + 右上角圆形关闭按钮,对齐对话窗口 UI。
+@MainActor
+private final class SettingsGlassViewController: NSViewController {
+    private let content: NSViewController
+
+    init(content: NSViewController) {
+        self.content = content
+        super.init(nibName: nil, bundle: nil)
+        addChild(content)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = NSView()
+        root.appearance = AppTheme.windowAppearance
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor.clear.cgColor
+
+        root.applyContinuousCornerRadius(AppTheme.resultCorner, background: .clear)
+
+        let glass = HaxGlassView(style: .light, cornerRadius: AppTheme.resultCorner)
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(glass)
+        glass.pinEdges(to: root)
+
+        let panel = NSView()
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.appearance = AppTheme.windowAppearance
+        // 同心圆角:内圆角 = 外圆角 - 玻璃外缘宽度
+        panel.applyContinuousCornerRadius(
+            AppTheme.resultCorner - AppTheme.glassContentInset,
+            background: AppTheme.panelContent
+        )
+        panel.layer?.borderWidth = 0.75
+        panel.layer?.borderColor = NSColor.white.withAlphaComponent(0.78).cgColor
+        glass.contentView.addSubview(panel)
+        NSLayoutConstraint.activate([
+            panel.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: AppTheme.glassContentInset),
+            panel.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -AppTheme.glassContentInset),
+            panel.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: AppTheme.glassContentInset),
+            panel.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -AppTheme.glassContentInset),
+        ])
+
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 9
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleRow = NSStackView()
+        titleRow.orientation = .vertical
+        titleRow.alignment = .leading
+        titleRow.spacing = 1
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
+        titleRow.addArrangedSubview(
+            NSTextField.haxLabel(
+                "HaxPick 设置",
+                font: AppFont.ui(ofSize: 14, weight: .semibold)
+            )
+        )
+
+        let close = CircleIconButton(
+            symbolName: "xmark",
+            accessibilityDescription: "关闭设置",
+            size: 28,
+            backgroundColor: NSColor.black.withAlphaComponent(0.86),
+            tintColor: .white,
+            target: self,
+            action: #selector(closeWindow)
+        )
+
+        header.addArrangedSubview(AppBrandIconView(size: 28))
+        header.addArrangedSubview(titleRow)
+        header.addArrangedSubview(NSView())
+        header.addArrangedSubview(close)
+
+        let divider = SoftDividerView()
+
+        content.view.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(header)
+        panel.addSubview(divider)
+        panel.addSubview(content.view)
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 14),
+            header.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -14),
+            header.topAnchor.constraint(equalTo: panel.topAnchor, constant: 11),
+            header.heightAnchor.constraint(equalToConstant: 38),
+
+            divider.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 12),
+            divider.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -12),
+            divider.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
+
+            content.view.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 22),
+            content.view.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -22),
+            content.view.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 14),
+            content.view.bottomAnchor.constraint(lessThanOrEqualTo: panel.bottomAnchor, constant: -16),
+        ])
+
+        view = root
+    }
+
+    @objc private func closeWindow() {
+        view.window?.close()
     }
 }
 
@@ -57,7 +182,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     private var apiKeyVisible = false
 
     private let permissionIcon = NSImageView()
-    private let permissionLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 12))
+    private let permissionLabel = NSTextField.haxLabel("", font: AppFont.ui(ofSize: 12))
     private let permissionButton = NSButton()
     private let permissionRepairButton = NSButton()
     private let modelPopup = NSPopUpButton()
@@ -65,7 +190,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     private let plainKeyField = APIKeyTextField()
     private let revealButton = NSButton()
     private let saveButton = NSButton()
-    private let keyStatusLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 10.5), color: AppTheme.textSecondary)
+    private let keyStatusLabel = NSTextField.haxLabel("", font: AppFont.ui(ofSize: 10.5), color: AppTheme.textSecondary)
 
     init(appState: AppState) {
         self.appState = appState
@@ -80,7 +205,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         view = NSView()
         view.appearance = AppTheme.windowAppearance
         view.wantsLayer = true
-        view.layer?.backgroundColor = AppTheme.background.cgColor
+        view.layer?.backgroundColor = NSColor.clear.cgColor
 
         let root = NSStackView()
         root.orientation = .vertical
@@ -95,8 +220,6 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
             root.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -22),
         ])
 
-        let title = NSTextField.haxLabel("HaxPick 设置", font: .systemFont(ofSize: 18, weight: .bold))
-        root.addArrangedSubview(title)
         root.addArrangedSubview(makePermissionSection())
         root.addArrangedSubview(makeAISection())
         root.addArrangedSubview(makeAboutSection())
@@ -164,14 +287,14 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         modelRow.orientation = .horizontal
         modelRow.alignment = .centerY
         modelRow.spacing = 8
-        let modelLabel = NSTextField.haxLabel("模型", font: .systemFont(ofSize: 12, weight: .medium))
+        let modelLabel = NSTextField.haxLabel("模型", font: AppFont.ui(ofSize: 12, weight: .medium))
         modelPopup.translatesAutoresizingMaskIntoConstraints = false
         modelPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         modelRow.addArrangedSubview(modelLabel)
         modelRow.addArrangedSubview(NSView())
         modelRow.addArrangedSubview(modelPopup)
 
-        let keyTitle = NSTextField.haxLabel("DeepSeek API Key", font: .systemFont(ofSize: 12, weight: .medium))
+        let keyTitle = NSTextField.haxLabel("DeepSeek API Key", font: AppFont.ui(ofSize: 12, weight: .medium))
 
         // The API key field owns an entire row. The old field shared horizontal
         // space with two buttons, which made a long key effectively unreadable.
@@ -199,7 +322,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
 
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.bezelStyle = .rounded
-        saveButton.font = .systemFont(ofSize: 12, weight: .medium)
+        saveButton.font = AppFont.ui(ofSize: 12, weight: .medium)
         saveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 62).isActive = true
 
         actionRow.addArrangedSubview(keyStatusLabel)
@@ -221,8 +344,8 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        let label = NSTextField.haxLabel("版本", font: .systemFont(ofSize: 12, weight: .medium))
-        let value = NSTextField.haxLabel("v\(appState.appVersion)", font: .systemFont(ofSize: 12), color: AppTheme.textSecondary, alignment: .right)
+        let label = NSTextField.haxLabel("版本", font: AppFont.ui(ofSize: 12, weight: .medium))
+        let value = NSTextField.haxLabel("v\(appState.appVersion)", font: AppFont.ui(ofSize: 12), color: AppTheme.textSecondary, alignment: .right)
         row.addArrangedSubview(label)
         row.addArrangedSubview(NSView())
         row.addArrangedSubview(value)
@@ -242,7 +365,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         stack.alignment = .leading
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let titleLabel = NSTextField.haxLabel(title, font: .systemFont(ofSize: 11, weight: .semibold), color: AppTheme.textSecondary)
+        let titleLabel = NSTextField.haxLabel(title, font: AppFont.ui(ofSize: 11, weight: .semibold), color: AppTheme.textSecondary)
         content.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(content)
@@ -341,7 +464,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         saveButton.setHaxTitle(
             "保存",
             color: shouldEnable ? AppTheme.textPrimary : AppTheme.textSecondary.withAlphaComponent(0.62),
-            font: .systemFont(ofSize: 12, weight: .medium)
+            font: AppFont.ui(ofSize: 12, weight: .medium)
         )
     }
 
