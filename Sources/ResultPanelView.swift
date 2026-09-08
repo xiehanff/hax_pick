@@ -9,7 +9,15 @@ final class ResultPanelView: NSView {
     private let headerTitle = NSTextField.haxLabel("", font: .systemFont(ofSize: 13.5, weight: .semibold))
     private let statusDot = NSView()
     private let statusLabel = NSTextField.haxLabel("", font: .systemFont(ofSize: 9.5, weight: .medium), color: AppTheme.textSecondary)
-    private let closeButton = NSButton()
+    private lazy var closeButton = CircleIconButton(
+        symbolName: "xmark",
+        accessibilityDescription: "关闭",
+        size: 28,
+        backgroundColor: NSColor.black.withAlphaComponent(0.86),
+        tintColor: .white,
+        target: self,
+        action: #selector(closePanel)
+    )
 
     private let scrollView = ConversationScrollView()
     private let documentView = ConversationDocumentView()
@@ -82,6 +90,7 @@ final class ResultPanelView: NSView {
         scrollView.documentView = documentView
 
         returnToLatestButton.translatesAutoresizingMaskIntoConstraints = false
+        returnToLatestButton.appearance = AppTheme.windowAppearance
         returnToLatestButton.title = "↓  回到最新"
         returnToLatestButton.font = .systemFont(ofSize: 10.5, weight: .medium)
         returnToLatestButton.bezelStyle = .rounded
@@ -149,19 +158,6 @@ final class ResultPanelView: NSView {
 
         row.addArrangedSubview(textStack)
         row.addArrangedSubview(NSView())
-
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.isBordered = false
-        closeButton.focusRingType = .none
-        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "关闭")
-        closeButton.contentTintColor = .white
-        closeButton.target = self
-        closeButton.action = #selector(closePanel)
-        closeButton.wantsLayer = true
-        closeButton.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.86).cgColor
-        closeButton.layer?.cornerRadius = 14
-        closeButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        closeButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
         row.addArrangedSubview(closeButton)
         return row
     }
@@ -523,7 +519,11 @@ private final class SourceTurnView: NSView {
             )
             button.isBordered = false
             button.font = .systemFont(ofSize: 10.5, weight: .medium)
-            button.contentTintColor = NSColor.white.withAlphaComponent(0.70)
+            button.setHaxTitle(
+                viewModel.isOriginalExpanded ? "收起" : "展开原文",
+                color: NSColor.white.withAlphaComponent(0.70),
+                font: .systemFont(ofSize: 10.5, weight: .medium)
+            )
             stack.addArrangedSubview(button)
         }
     }
@@ -619,11 +619,12 @@ private final class SuggestionButton: NSButton {
         self.handler = action
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        appearance = AppTheme.windowAppearance
         self.title = title
         isBordered = false
         focusRingType = .none
         font = .systemFont(ofSize: 10.5)
-        contentTintColor = AppTheme.textSecondary
+        setHaxTitle(title, color: AppTheme.textSecondary, font: .systemFont(ofSize: 10.5))
         alignment = .left
         target = self
         self.action = #selector(runHandler)
@@ -683,11 +684,12 @@ private final class ClosureButton: NSButton {
         self.handler = handler
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        appearance = AppTheme.windowAppearance
         self.title = title
         isBordered = false
         focusRingType = .none
         font = .systemFont(ofSize: 10.5, weight: .medium)
-        contentTintColor = AppTheme.textSecondary
+        setHaxTitle(title, color: AppTheme.textSecondary, font: .systemFont(ofSize: 10.5, weight: .medium))
         target = self
         action = #selector(runHandler)
     }
