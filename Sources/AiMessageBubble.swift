@@ -98,9 +98,10 @@ final class AiMessageBubble: NSView {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
 
-        let bubble = NSView()
-        bubble.translatesAutoresizingMaskIntoConstraints = false
-        bubble.applyContinuousCornerRadius(12, background: AppTheme.mutedBg)
+        let bubble = RoundedSurfaceView(
+            cornerRadius: 12,
+            backgroundColor: AppTheme.mutedBg
+        )
 
         let text = AutoHeightTextView()
         text.font = .systemFont(ofSize: 13)
@@ -127,6 +128,11 @@ final class AiMessageBubble: NSView {
         return root
     }
 
+    private func shouldShowReasoning(for message: AiMessage, streaming: Bool) -> Bool {
+        !message.reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            (streaming && message.expectsReasoning)
+    }
+
     private func makeAssistantView() -> NSView {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
@@ -138,10 +144,10 @@ final class AiMessageBubble: NSView {
         root.addSubview(stack)
         stack.pinEdges(to: root)
 
-        let reasoning = currentMessage.reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !reasoning.isEmpty {
+        let showReasoning = shouldShowReasoning(for: currentMessage, streaming: isStreaming)
+        if showReasoning {
             let disclosure = AiReasoningDisclosureView(
-                text: reasoning,
+                text: currentMessage.reasoning,
                 isStreaming: isStreaming,
                 onLayoutChange: onLayoutChange
             )
@@ -155,7 +161,7 @@ final class AiMessageBubble: NSView {
             assistantBodyView = body
             stack.addArrangedSubview(body)
             body.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        } else if isStreaming && reasoning.isEmpty {
+        } else if isStreaming && !showReasoning {
             let thinking = ThinkingIndicatorView()
             assistantBodyView = thinking
             stack.addArrangedSubview(thinking)
@@ -174,10 +180,9 @@ final class AiMessageBubble: NSView {
         }
 
         var needsLayout = false
-        let reasoning = currentMessage.reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
-        let previousReasoning = previousMessage.reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+        let showReasoning = shouldShowReasoning(for: currentMessage, streaming: isStreaming)
 
-        if reasoning.isEmpty {
+        if !showReasoning {
             if let reasoningView {
                 stack.removeArrangedSubview(reasoningView)
                 reasoningView.removeFromSuperview()
@@ -185,12 +190,12 @@ final class AiMessageBubble: NSView {
                 needsLayout = true
             }
         } else if let reasoningView {
-            if reasoningView.update(text: reasoning, isStreaming: isStreaming) {
+            if reasoningView.update(text: currentMessage.reasoning, isStreaming: isStreaming) {
                 needsLayout = true
             }
         } else {
             let disclosure = AiReasoningDisclosureView(
-                text: reasoning,
+                text: currentMessage.reasoning,
                 isStreaming: isStreaming,
                 onLayoutChange: onLayoutChange
             )
@@ -205,7 +210,7 @@ final class AiMessageBubble: NSView {
         let opacityChanged = abs(assistantContentOpacity - previousOpacity) > 0.001
 
         if currentMessage.content.isEmpty {
-            if isStreaming && reasoning.isEmpty {
+            if isStreaming && !showReasoning {
                 if !(assistantBodyView is ThinkingIndicatorView) {
                     replaceAssistantBody(in: stack, with: ThinkingIndicatorView())
                     needsLayout = true
@@ -240,10 +245,6 @@ final class AiMessageBubble: NSView {
             needsLayout = true
         } else if opacityChanged {
             assistantBodyView?.alphaValue = assistantContentOpacity
-        }
-
-        if !reasoning.isEmpty && previousReasoning.isEmpty {
-            needsLayout = true
         }
 
         if needsLayout {
@@ -300,7 +301,7 @@ final class AiMessageBubble: NSView {
 }
 
 @MainActor
-private final class AiReasoningDisclosureView: NSView {
+private final class AiReasoningDisclosureView: RoundedSurfaceView {
     private var text: String
     private var isStreaming: Bool
     private let onLayoutChange: () -> Void
@@ -311,17 +312,18 @@ private final class AiReasoningDisclosureView: NSView {
     private let chevron = NSImageView()
     private var bodyView: NSView?
     private var streamingTextView: AutoHeightTextView?
-    private var collapseButton: NSButton?
+    private var collapseFooter: NSView?
 
     init(text: String, isStreaming: Bool, onLayoutChange: @escaping () -> Void) {
         self.text = text
         self.isStreaming = isStreaming
         self.onLayoutChange = onLayoutChange
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        applyContinuousCornerRadius(10, background: AppTheme.mutedBg.withAlphaComponent(0.72))
-        layer?.borderWidth = 0.75
-        layer?.borderColor = AppTheme.border.withAlphaComponent(0.75).cgColor
+        super.init(
+            cornerRadius: 10,
+            backgroundColor: AppTheme.mutedBg.withAlphaComponent(0.62),
+            borderColor: AppTheme.border.withAlphaComponent(0.62),
+            borderWidth: 0.75
+        )
         buildUI()
         refreshHeader()
     }
@@ -332,15 +334,19 @@ private final class AiReasoningDisclosureView: NSView {
 
     @discardableResult
     func update(text: String, isStreaming: Bool) -> Bool {
-        let textChanged = text != self.text
+        let oldText = self.text
+        let textChanged = text != oldText
         let streamingChanged = isStreaming != self.isStreaming
+        let emptyStateChanged = oldText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty !=
+            text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
         self.text = text
         self.isStreaming = isStreaming
         refreshHeader()
 
         guard isExpanded else { return false }
 
-        if streamingChanged {
+        if streamingChanged || emptyStateChanged {
             rebuildExpandedBody()
             return true
         }
@@ -362,7 +368,7 @@ private final class AiReasoningDisclosureView: NSView {
     private func buildUI() {
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 7
+        stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -382,7 +388,7 @@ private final class AiReasoningDisclosureView: NSView {
         let title = NSTextField.haxLabel(
             "思考过程",
             font: .systemFont(ofSize: 11.5, weight: .medium),
-            color: AppTheme.textSecondary.withAlphaComponent(0.82)
+            color: AppTheme.textSecondary.withAlphaComponent(0.72)
         )
         spinner.style = .spinning
         spinner.controlSize = .small
@@ -391,7 +397,7 @@ private final class AiReasoningDisclosureView: NSView {
         spinner.heightAnchor.constraint(equalToConstant: 12).isActive = true
         chevron.translatesAutoresizingMaskIntoConstraints = false
         chevron.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
-        chevron.contentTintColor = AppTheme.textSecondary.withAlphaComponent(0.82)
+        chevron.contentTintColor = AppTheme.textSecondary.withAlphaComponent(0.72)
         chevron.widthAnchor.constraint(equalToConstant: 10).isActive = true
         chevron.heightAnchor.constraint(equalToConstant: 10).isActive = true
 
@@ -404,6 +410,7 @@ private final class AiReasoningDisclosureView: NSView {
 
         let button = NSButton(title: "", target: self, action: #selector(toggleExpanded))
         button.translatesAutoresizingMaskIntoConstraints = false
+        button.appearance = AppTheme.windowAppearance
         button.isBordered = false
         button.focusRingType = .none
         button.setAccessibilityLabel("思考过程")
@@ -446,20 +453,28 @@ private final class AiReasoningDisclosureView: NSView {
             self.bodyView = nil
         }
         streamingTextView = nil
-        if let collapseButton {
-            stack.removeArrangedSubview(collapseButton)
-            collapseButton.removeFromSuperview()
-            self.collapseButton = nil
+        if let collapseFooter {
+            stack.removeArrangedSubview(collapseFooter)
+            collapseFooter.removeFromSuperview()
+            self.collapseFooter = nil
         }
     }
 
     private func rebuildExpandedBody() {
         removeExpandedBody()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let body: NSView
-        if isStreaming {
+
+        if trimmed.isEmpty {
+            body = NSTextField.haxLabel(
+                isStreaming ? "正在思考…" : "暂无思考内容",
+                font: .systemFont(ofSize: 11.5),
+                color: AppTheme.textSecondary.withAlphaComponent(0.58)
+            )
+        } else if isStreaming {
             let textView = AutoHeightTextView()
             textView.font = .systemFont(ofSize: 11.5)
-            textView.textColor = AppTheme.textSecondary.withAlphaComponent(0.72)
+            textView.textColor = AppTheme.textSecondary.withAlphaComponent(0.66)
             textView.string = text
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 3
@@ -470,23 +485,32 @@ private final class AiReasoningDisclosureView: NSView {
         } else {
             body = MarkdownWithCodeBlocksView(
                 text: text,
-                textColor: AppTheme.textSecondary.withAlphaComponent(0.72),
+                textColor: AppTheme.textSecondary.withAlphaComponent(0.66),
                 fontSize: 11.5
             )
         }
+
         bodyView = body
         stack.addArrangedSubview(body)
         body.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        let collapse = NSButton(title: "收起思考过程  ↑", target: self, action: #selector(toggleExpanded))
-        collapse.translatesAutoresizingMaskIntoConstraints = false
-        collapse.isBordered = false
-        collapse.focusRingType = .none
-        collapse.font = .systemFont(ofSize: 10.5, weight: .medium)
-        collapse.contentTintColor = AppTheme.textSecondary.withAlphaComponent(0.78)
-        collapseButton = collapse
-        stack.addArrangedSubview(collapse)
-        collapse.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        let footer = NSStackView()
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 0
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        footer.addArrangedSubview(NSView())
+        let collapse = NSButton.haxTextButton(
+            "收起 ↑",
+            target: self,
+            action: #selector(toggleExpanded),
+            font: .systemFont(ofSize: 10.5, weight: .medium),
+            color: AppTheme.textSecondary.withAlphaComponent(0.70)
+        )
+        footer.addArrangedSubview(collapse)
+        collapseFooter = footer
+        stack.addArrangedSubview(footer)
+        footer.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
 }
 
