@@ -25,7 +25,7 @@ final class SettingsWindowController: NSWindowController {
 }
 
 @MainActor
-final class SettingsViewController: NSViewController {
+final class SettingsViewController: NSViewController, NSTextFieldDelegate {
     private let appState: AppState
     private var observation: AnyCancellable?
     private var lastCommittedAPIKey = ""
@@ -221,8 +221,13 @@ final class SettingsViewController: NSViewController {
         modelPopup.target = self
         modelPopup.action = #selector(modelChanged)
 
-        secureKeyField.placeholderString = "粘贴 API Key"
-        plainKeyField.placeholderString = "粘贴 API Key"
+        for field in [secureKeyField, plainKeyField] {
+            field.delegate = self
+            field.isEditable = true
+            field.isSelectable = true
+            field.usesSingleLineMode = true
+            field.placeholderString = "粘贴 API Key"
+        }
 
         revealButton.target = self
         revealButton.action = #selector(toggleKeyVisibility)
@@ -257,10 +262,23 @@ final class SettingsViewController: NSViewController {
         }
         lastCommittedAPIKey = appState.apiKey
 
-        saveButton.title = appState.canRetryAPIKeyStorage ? "重试" : "保存"
-        saveButton.isEnabled = appState.canRetryAPIKeyStorage || currentDraft != appState.apiKey || appState.apiKeyStorageError != nil
+        refreshSaveButtonState()
         keyStatusLabel.stringValue = appState.apiKeyStorageError ?? appState.apiKeyStorageStatusMessage
         keyStatusLabel.textColor = appState.apiKeyStorageError == nil ? AppTheme.textSecondary : .systemOrange
+    }
+
+    private func refreshSaveButtonState() {
+        let currentDraft = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        saveButton.title = appState.canRetryAPIKeyStorage ? "重试" : "保存"
+        saveButton.isEnabled = appState.canRetryAPIKeyStorage ||
+            currentDraft != appState.apiKey ||
+            appState.apiKeyStorageError != nil
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField,
+              field === secureKeyField || field === plainKeyField else { return }
+        refreshSaveButtonState()
     }
 
     @objc private func permissionAction() {
@@ -287,6 +305,7 @@ final class SettingsViewController: NSViewController {
         secureKeyField.isHidden = apiKeyVisible
         plainKeyField.isHidden = !apiKeyVisible
         refreshRevealIcon()
+        refreshSaveButtonState()
         view.window?.makeFirstResponder(apiKeyVisible ? plainKeyField : secureKeyField)
     }
 
