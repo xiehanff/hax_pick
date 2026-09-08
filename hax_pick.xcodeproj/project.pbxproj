@@ -120,7 +120,7 @@
 				E00700000000000000000001 /* ResultPanelView.swift */,
 				FDD5D1060FD400B6A9124621 /* SelectionMonitor.swift */,
 				BD6C65ED168E28DCDF7315E2 /* ToolbarPanelController.swift */,
-				A2F4D6A01B6B4C33A5F7D8E1 /* Theme.swift */,
+				A2F4D6A11B6B4C33A5F7D8E1 /* Theme.swift */,
 				75DB5EB782A5E2EDCE08AD13 /* AppDelegate.swift */,
 				33AA1DE71F814675DE173FE5 /* ClipboardSelectionService.swift */,
 				A1B2C3D4E5F6A7B8C9D0E1F3 /* PanelSessionViewModel.swift */,
@@ -335,7 +335,7 @@
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_NO_COMMON_BLOCKS = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
@@ -481,13 +481,13 @@
 			defaultConfigurationName = Release;
 		};
 		2F7368D6ABD86C28232FFDB9 /* Build configuration list for PBXNativeTarget "hax_pick" */ = {
-			isa = XCConfigurationList;
 			buildConfigurations = (
 				928C1F5D4F5ACA21C39C98B7 /* Release */,
 				E604260D0D04CF63510F8FA3 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
+			isa = XCConfigurationList;
 		};
 /* End XCConfigurationList section */
 	};
