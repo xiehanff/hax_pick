@@ -95,7 +95,7 @@ final class FloatingToolbarView: NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 7
+        row.spacing = 11
         row.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(row)
         NSLayoutConstraint.activate([
@@ -116,18 +116,6 @@ final class FloatingToolbarView: NSView {
         for action in AiToolAction.primaryActions {
             row.addArrangedSubview(makeActionButton(action, toolTip: action.rawValue))
         }
-
-        let polish = NSButton.haxTextButton(
-            "润色",
-            target: nil,
-            action: nil,
-            font: FloatingPanelLayout.toolbarTextFont,
-            color: AppTheme.textPrimary
-        )
-        polish.toolTip = "暂未实现"
-        polish.isEnabled = false
-        polish.alphaValue = 0.34
-        row.addArrangedSubview(polish)
 
         let resume = ClosureIconButton(symbolName: "bubble.left", toolTip: "回到上一个对话") {
             [weak viewModel] in
@@ -307,6 +295,10 @@ private final class ToolbarActionButton: NSButton {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .arrow)
     }
 
     @objc private func runAction() {

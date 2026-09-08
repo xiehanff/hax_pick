@@ -20,6 +20,8 @@ final class AppKitUIRegressionTests: XCTestCase {
             FloatingPanelLayout.toolbarTextFont.ascender - FloatingPanelLayout.toolbarTextFont.descender,
             "按钮字体增大时，内容区域必须仍能容纳完整字形"
         )
+        XCTAssertEqual(FloatingPanelLayout.toolbarTextFont.pointSize, 14, accuracy: 0.01)
+        XCTAssertGreaterThanOrEqual(FloatingPanelLayout.toolbarContentHeight, 44)
     }
 
     func testDeepDiveDoesNotFadeCodeBlockThroughAncestorOpacity() async throws {

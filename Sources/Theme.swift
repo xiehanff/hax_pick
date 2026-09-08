@@ -35,11 +35,13 @@ enum AppTheme {
 
 enum FloatingPanelLayout {
     static let toolbarWidth: CGFloat = 440
-    static let toolbarTextFontSize: CGFloat = 12
-    static let toolbarTextFont = AppFont.ui(ofSize: toolbarTextFontSize, weight: .semibold)
+    // Toolbar actions use a medium, slightly lighter 14pt face.
+    static let toolbarTextFontSize: CGFloat = 14
+    static let toolbarTextFont = AppFont.ui(ofSize: toolbarTextFontSize, weight: .medium)
     static let toolbarContentHeight: CGFloat = max(
-        34,
-        ceil(toolbarTextFont.ascender - toolbarTextFont.descender + max(0, toolbarTextFont.leading) + 12)
+        44,
+        // Ten points of vertical breathing room above and below the glyphs.
+        ceil(toolbarTextFont.ascender - toolbarTextFont.descender + max(0, toolbarTextFont.leading) + 20)
     )
     static var toolbarSize: NSSize {
         NSSize(

@@ -89,6 +89,7 @@ struct DeepSeekService {
 
     enum Model: String, CaseIterable, Identifiable {
         case flash = "deepseek-v4-flash"
+        case flashVisionExp = "deepseek-v4-flash-vision-exp"
         case pro = "deepseek-v4-pro"
 
         var id: String { rawValue }

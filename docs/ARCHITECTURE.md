@@ -89,7 +89,7 @@ AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动�
 
 尺寸由 `FloatingPanelLayout` 统一管理。
 
-工具栏宽度保持 440pt；高度不再是固定常量，而是由 `FloatingPanelLayout.toolbarTextFont` 的实际字形行高、最小内容高度和上下各 12pt 玻璃内边距计算。工具栏按钮、拖动点阵和恢复入口共用计算出的内容高度，因此调整按钮字体时，窗口白色内容层会同步增高。
+工具栏宽度保持 440pt；主操作按钮使用较细的 Medium 14pt 字体，白色主体内容区至少 44pt，高度继续由 `FloatingPanelLayout.toolbarTextFont` 的实际字形行高、上下各 10pt 内容内距和上下各 12pt 玻璃内边距计算。工具栏按钮、拖动点阵和恢复入口共用计算出的内容高度，因此调整按钮字体时，窗口白色内容层会同步增高。
 
 结果面板边缘缩放采用单轴规则：左右边缘只修改宽度，上下边缘只修改高度，四角不再同时修改两个尺寸。每个拖拽事件只提交一个整数化窗口 frame，避免窗口 frame、玻璃内容约束和对话布局在同一帧互相争抢造成闪烁。
 
@@ -107,7 +107,7 @@ AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动�
 - 浅色玻璃外缘只叠加 4% 白色，内容层叠加 72% 白色；外缘比主题背景更透明，主题背景仍能轻微透出桌面色彩。
 - 结果侧栏和托盘菜单外壳由 SwiftUI 连续圆角的独立合成层裁切，窗口阴影交由 `NSPanel` 绘制，避免透明窗口边界裁断阴影后产生圆角锯齿。
 - 托盘回归系统样式：`MenuBarExtra(.menu)` 仅含「设置…」「退出」；设置项（辅助功能权限、模型、DeepSeek API Key、版本号）在系统样式的 `Window`（grouped Form）中配置，不使用自定义玻璃视觉。
-- 工具栏与结果侧栏共用同一套玻璃视觉：`HaxGlassSurface(style: .light)` 玻璃外壳（Capsule 全圆角）+ `AppTheme.panelContent`（72% 白色微透明）内容层 + 0.78 白色 0.75pt 内描边，随结果侧栏的玻璃改版同步演进。左侧拖动点阵为黑色，复制、翻译、解释均显示黑色文字；“深度理解”“润色”以黑色禁用态展示，等待后续实现。
+- 工具栏与结果侧栏共用同一套玻璃视觉：`HaxGlassSurface(style: .light)` 玻璃外壳（Capsule 全圆角）+ `AppTheme.panelContent`（72% 白色微透明）内容层 + 0.78 白色 0.75pt 内描边，随结果侧栏的玻璃改版同步演进。左侧拖动点阵为黑色，复制、翻译、解释和深度理解均显示黑色文字。
 - 对话窗头部、内容区与输入区之间不使用横向分割线，仅通过留白和输入卡片边界区分层级。
 - 长文本内容区使用白色磨砂微透明背景；继续提问输入框保持更高不透明度，避免输入控件丢失边界和对比度。
 
@@ -350,12 +350,14 @@ follow-tail 状态只属于 View 层，不进入 `PanelSessionViewModel` / `AiAg
 
 DeepSeek API Key 使用 `UserDefaults` 键 `deepseek_api_key` 持久化。启动时读取有效的 `sk-` 值；设置页保存时校验后写入本地缓存，清空时删除该键。运行时 `AppState.apiKey` 是请求唯一读取入口。
 
+设置页使用无标题栏玻璃窗口；由于 borderless `NSWindow` 默认不能成为 key window，必须由 `SettingsWindow` 显式允许 `canBecomeKey` / `canBecomeMain`，并在窗口成为 key 后再让 API Key 字段成为 first responder。API Key 字段自身也在鼠标按下时确保窗口和 field editor 获得焦点，并保留 ⌘V 的 responder fallback；视觉上使用圆角浅色输入卡片、内边距和独立占位符字体。
+
 本地缓存写入不调用 Keychain，不触发系统密码验证，也不存在 Keychain 迁移、故障恢复或重试状态。`apiKeyStorageState` 只表示 `.local` 或 `.empty`。
 
 ## DeepSeek API
 
 - 端点：`https://api.deepseek.com/chat/completions`
-- 模型：`deepseek-v4-flash` / `deepseek-v4-pro`
+- 模型：`deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`
 - timeout：45s
 - 输入：经过 `AiHistoryWindow` 塑形后的 `[AiMessage]`
 - 动作推理策略：翻译关闭 thinking，解释使用 low reasoning effort

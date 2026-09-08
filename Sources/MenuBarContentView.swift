@@ -14,16 +14,127 @@ private func handleAPIKeyPaste(field: NSTextField, event: NSEvent) -> Bool {
     return true
 }
 
+private func verticallyCenteredTextRect(_ bounds: NSRect, drawingRect: NSRect) -> NSRect {
+    var rect = drawingRect
+    let height = min(rect.height, bounds.height)
+    rect.origin.y = bounds.minY + floor((bounds.height - height) / 2)
+    rect.size.height = height
+    return rect
+}
+
+private class VerticallyCenteredTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        verticallyCenteredTextRect(rect, drawingRect: super.drawingRect(forBounds: rect))
+    }
+
+    override func edit(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(
+            withFrame: drawingRect(forBounds: rect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            event: event
+        )
+    }
+
+    override func select(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        start selStart: Int,
+        length selLength: Int
+    ) {
+        super.select(
+            withFrame: drawingRect(forBounds: rect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            start: selStart,
+            length: selLength
+        )
+    }
+}
+
+private final class VerticallyCenteredSecureTextFieldCell: NSSecureTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        verticallyCenteredTextRect(rect, drawingRect: super.drawingRect(forBounds: rect))
+    }
+
+    override func edit(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(
+            withFrame: drawingRect(forBounds: rect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            event: event
+        )
+    }
+
+    override func select(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        start selStart: Int,
+        length selLength: Int
+    ) {
+        super.select(
+            withFrame: drawingRect(forBounds: rect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            start: selStart,
+            length: selLength
+        )
+    }
+}
+
 private final class APIKeyTextField: NSTextField {
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         handleAPIKeyPaste(field: self, event: event) || super.performKeyEquivalent(with: event)
     }
 }
 
 private final class APIKeySecureTextField: NSSecureTextField {
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         handleAPIKeyPaste(field: self, event: event) || super.performKeyEquivalent(with: event)
     }
+}
+
+/// Borderless windows do not become key windows unless they explicitly opt in.
+/// Settings still needs to host a normal field editor for typing and paste.
+private final class SettingsWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
 @MainActor
@@ -31,7 +142,7 @@ final class SettingsWindowController: NSWindowController {
     init(appState: AppState) {
         // 与对话窗口同款:borderless 玻璃窗口 + 白色内容层 + 圆形关闭按钮,
         // 不再使用系统标题栏 panel
-        let window = NSWindow(
+        let window = SettingsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 540),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
@@ -253,7 +364,14 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        view.window?.makeFirstResponder(apiKeyVisible ? plainKeyField : secureKeyField)
+        // showWindow() and makeKeyAndOrderFront() are called by the app
+        // delegate in sequence. Defer until the key-window transition has
+        // completed so the field editor can actually become first responder.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.view.window else { return }
+            window.makeKey()
+            window.makeFirstResponder(self.apiKeyVisible ? self.plainKeyField : self.secureKeyField)
+        }
     }
 
     private func makePermissionSection() -> NSView {
@@ -298,15 +416,22 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
 
         // The API key field owns an entire row. The old field shared horizontal
         // space with two buttons, which made a long key effectively unreadable.
-        let fieldContainer = NSView()
-        fieldContainer.translatesAutoresizingMaskIntoConstraints = false
-        fieldContainer.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        let fieldContainer = RoundedSurfaceView(
+            cornerRadius: 9,
+            backgroundColor: AppTheme.mutedBg,
+            borderColor: AppTheme.border,
+            borderWidth: 0.75
+        )
+        fieldContainer.heightAnchor.constraint(equalToConstant: 24).isActive = true
         secureKeyField.translatesAutoresizingMaskIntoConstraints = false
         plainKeyField.translatesAutoresizingMaskIntoConstraints = false
         fieldContainer.addSubview(secureKeyField)
         fieldContainer.addSubview(plainKeyField)
-        secureKeyField.pinEdges(to: fieldContainer)
-        plainKeyField.pinEdges(to: fieldContainer)
+        // Keep the field editor slightly shorter than the custom surface so
+        // NSTextField's baseline sits centered inside the 24pt control.
+        let fieldInsets = NSEdgeInsets(top: 2, left: 10, bottom: 2, right: 10)
+        secureKeyField.pinEdges(to: fieldContainer, insets: fieldInsets)
+        plainKeyField.pinEdges(to: fieldContainer, insets: fieldInsets)
         plainKeyField.isHidden = true
 
         let actionRow = NSStackView()
@@ -399,13 +524,30 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
         modelPopup.target = self
         modelPopup.action = #selector(modelChanged)
 
+        secureKeyField.cell = VerticallyCenteredSecureTextFieldCell(textCell: "")
+        plainKeyField.cell = VerticallyCenteredTextFieldCell(textCell: "")
+
         for field in [secureKeyField, plainKeyField] {
             field.delegate = self
             field.isEditable = true
             field.isSelectable = true
             field.usesSingleLineMode = true
             field.placeholderString = "粘贴 API Key"
-            field.focusRingType = .default
+            field.placeholderAttributedString = NSAttributedString(
+                string: "粘贴 API Key",
+                attributes: [
+                    .font: AppFont.ui(ofSize: 11),
+                    .foregroundColor: AppTheme.textSecondary.withAlphaComponent(0.58),
+                ]
+            )
+            // The native focus ring is a rectangular blue fill on a transparent
+            // NSTextField and clashes with the rounded input surface.
+            field.focusRingType = .none
+            field.isBordered = false
+            field.isBezeled = false
+            field.drawsBackground = false
+            field.backgroundColor = .clear
+            field.textColor = AppTheme.textPrimary
             field.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
             field.cell?.wraps = false
             field.cell?.isScrollable = true
