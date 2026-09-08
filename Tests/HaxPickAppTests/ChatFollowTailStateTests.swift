@@ -2,71 +2,64 @@ import XCTest
 @testable import HaxPickApp
 
 final class ChatFollowTailStateTests: XCTestCase {
-    func testManualScrollPausesFollowingUntilResume() {
+    func testLeavingTailPausesFollowing() {
         var state = ChatFollowTailState()
 
         XCTAssertTrue(state.isFollowingTail)
-        state.userDidScroll()
+        XCTAssertEqual(
+            state.userScrollPositionDidChange(extentAfter: 120),
+            .paused
+        )
         XCTAssertFalse(state.isFollowingTail)
-
-        state.resume()
-        XCTAssertTrue(state.isFollowingTail)
     }
 
     func testStartingNewRequestRestoresFollowing() {
         var state = ChatFollowTailState()
-        state.userDidScroll()
+        _ = state.userScrollPositionDidChange(extentAfter: 120)
         XCTAssertFalse(state.isFollowingTail)
 
         state.requestDidStart()
         XCTAssertTrue(state.isFollowingTail)
     }
 
-    func testReturningTowardTailWithinThresholdRestoresFollowing() {
+    func testReturningToTailRestoresFollowingRegardlessOfDirectionHistory() {
         var state = ChatFollowTailState()
-        state.userDidScroll()
+        _ = state.userScrollPositionDidChange(extentAfter: 120)
         XCTAssertFalse(state.isFollowingTail)
 
-        XCTAssertFalse(
-            state.tailPositionDidChange(
-                extentAfter: 120,
-                movingTowardTail: true
-            )
+        XCTAssertEqual(
+            state.userScrollPositionDidChange(extentAfter: 80),
+            .none
         )
         XCTAssertFalse(state.isFollowingTail)
 
-        XCTAssertTrue(
-            state.tailPositionDidChange(
-                extentAfter: 40,
-                movingTowardTail: true
-            )
+        XCTAssertEqual(
+            state.userScrollPositionDidChange(extentAfter: 12),
+            .resumed
         )
         XCTAssertTrue(state.isFollowingTail)
     }
 
-    func testMovingAwayFromTailDoesNotImmediatelyResumeInsideThreshold() {
-        var state = ChatFollowTailState()
-        state.userDidScroll()
-        XCTAssertFalse(state.isFollowingTail)
-
-        XCTAssertFalse(
-            state.tailPositionDidChange(
-                extentAfter: 24,
-                movingTowardTail: false
-            )
-        )
-        XCTAssertFalse(state.isFollowingTail)
-    }
-
-    func testTailMetricDoesNotChangeAnAlreadyFollowingState() {
+    func testSmallMovementInsideTailToleranceKeepsFollowing() {
         var state = ChatFollowTailState()
 
-        XCTAssertFalse(
-            state.tailPositionDidChange(
-                extentAfter: 0,
-                movingTowardTail: true
-            )
+        XCTAssertEqual(
+            state.userScrollPositionDidChange(extentAfter: 18),
+            .none
         )
         XCTAssertTrue(state.isFollowingTail)
+    }
+
+    func testResumeIsIdempotent() {
+        var state = ChatFollowTailState()
+        _ = state.userScrollPositionDidChange(extentAfter: 120)
+        XCTAssertFalse(state.isFollowingTail)
+
+        state.resume()
+        XCTAssertTrue(state.isFollowingTail)
+        XCTAssertEqual(
+            state.userScrollPositionDidChange(extentAfter: 0),
+            .none
+        )
     }
 }
