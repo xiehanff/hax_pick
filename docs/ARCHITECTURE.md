@@ -29,7 +29,7 @@ Xcode 工程无独立测试 target，单元测试由 SPM `HaxPickAppTests` 承�
 HaxPickApp
   └── AppDelegate
        └── AppState（应用生命周期 / 顶层编排）
-            ├── KeychainAPIKeyStore（DeepSeek API Key）
+            ├── UserDefaults（DeepSeek API Key / 模型配置）
             ├── SelectionMonitor
             │    ├── AccessibilityTextService
             │    └── ClipboardSelectionService
@@ -52,8 +52,7 @@ HaxPickApp
 
 职责边界：
 
-- `AppState`：权限、设置、Keychain credential 编排、SelectionMonitor、Panel Controller、DeepSeekService 实例编排
-- `KeychainAPIKeyStore`：DeepSeek API Key 的 Generic Password 读写，不负责 UI 或迁移策略
+- `AppState`：权限、设置、本地缓存 credential 编排、SelectionMonitor、Panel Controller、DeepSeekService 实例编排
 - `ToolbarPanelController`：NSPanel 创建、定位、聚焦、dismiss
 - `PanelSessionViewModel`：toolbar/result 模式、选中文本、输入框、原文展开状态，以及对 `AiAgentSession` 的 UI 投影。重新划词时若当前会话有内容或仍在生成，会话被归档（请求任务后台继续），工具栏气泡图标可重新进入上一个对话（`resumeArchivedConversation`，单归档槽位，划词原文随会话一起归档/恢复）
 - `AiAgentSession`：本地完整 AI history、发送前 request window、streaming draft、generation、cancel、stop、retry、rollback
@@ -85,10 +84,16 @@ AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动�
 
 `PanelSessionViewModel.PanelMode`：
 
-- `.toolbar`：378×48pt，定位在选区附近
+- `.toolbar`：宽 440pt，高度按按钮字体行高自适应，定位在选区附近
 - `.result`：宽度为当前屏幕可用宽度的 36%，限制在 460–560pt；高度为可用区域的 82%，限制在 560–720pt，并在右侧垂直居中
 
 尺寸由 `FloatingPanelLayout` 统一管理。
+
+工具栏宽度保持 440pt；高度不再是固定常量，而是由 `FloatingPanelLayout.toolbarTextFont` 的实际字形行高、最小内容高度和上下各 12pt 玻璃内边距计算。工具栏按钮、拖动点阵和恢复入口共用计算出的内容高度，因此调整按钮字体时，窗口白色内容层会同步增高。
+
+结果面板边缘缩放采用单轴规则：左右边缘只修改宽度，上下边缘只修改高度，四角不再同时修改两个尺寸。每个拖拽事件只提交一个整数化窗口 frame，避免窗口 frame、玻璃内容约束和对话布局在同一帧互相争抢造成闪烁。
+
+设置页的“重置权限”会清理当前应用的 Accessibility TCC 记录，然后只调用 `AXIsProcessTrustedWithOptions` 触发系统辅助功能授权询问；它不会自动打开“系统设置 > 辅助功能”页面。需要手动进入设置时，使用独立的“打开设置”按钮。
 
 `.toolbar` 不主动 activate，鼠标左键仍按下时使用 `ignoresMouseEvents` 穿透，监听 `leftMouseUp` 恢复点击（即使最终文本相同未重复发布）；点击面板外会关闭；`.result` 使用 `activate + makeKeyAndOrderFront`，固定在当前屏幕右侧且保持 `hidesOnDeactivate = false`，点击侧栏外不会关闭。两种模式都可通过 ESC 关闭。
 
@@ -197,7 +202,7 @@ data: [DONE]
 
 才能被视为完整成功。即使此前已经收到可展示的 `content`，如果 HTTP body 在 `[DONE]` 之前直接 EOF，也必须按 `incompleteStream` 失败处理，让 `AiAgentSession` 走 rollback / Retry；不能把被截断的 partial assistant 当成完整历史提交。
 
-`complete(messages:)` 仍保留为聚合 helper：内部消费相同 stream，最终返回完整字符串，主要用于兼容测试和非流式调用点。
+测试使用的完整响应注入器由 `AiAgentSession(complete:)` 提供；生产 `DeepSeekService` 只保留流式接口，避免维护没有运行时调用方的聚合 helper。
 
 ## Streaming draft、UI 节流与渲染阶段
 
@@ -341,53 +346,11 @@ follow-tail 状态只属于 View 层，不进入 `PanelSessionViewModel` / `AiAg
 
 `prepareForDismissal()` 是幂等的，并调用 `AiAgentSession.cancel()`。关闭面板时当前 streaming draft 会按取消语义 rollback，不会在隐藏 Session 中继续写入。
 
-## API Key / Keychain
+## API Key / 本地缓存
 
-DeepSeek API Key 的主持久化存储已经迁移到 macOS Keychain，使用 Generic Password item：
+DeepSeek API Key 使用 `UserDefaults` 键 `deepseek_api_key` 持久化。启动时读取有效的 `sk-` 值；设置页保存时校验后写入本地缓存，清空时删除该键。运行时 `AppState.apiKey` 是请求唯一读取入口。
 
-```text
-service: com.hax.haxpick.deepseek-api-key
-account: deepseek-api-key
-accessible: when unlocked, this device only
-```
-
-新的 API Key 不再写入 UserDefaults。
-
-为了兼容升级前版本，`deepseek_api_key` UserDefaults 只作为一次性 legacy migration 来源：
-
-```text
-启动
-  ↓
-Keychain 有有效 Key
-  ├─ 使用 Keychain
-  └─ 删除 legacy UserDefaults 明文
-
-Keychain 没有 Key + legacy 有有效 Key
-  ↓
-尝试写入 Keychain
-  ├─ 成功 → 删除 legacy 明文
-  └─ 失败 → 暂时保留 legacy，避免升级后静默丢失唯一凭证
-
-Keychain read 失败
-  ↓
-legacy 只允许本次 fallback read
-  ↓
-禁止把 legacy 反向写回未知状态的 Keychain
-```
-
-用户主动编辑使用事务式提交，不直接绑定运行时 credential：
-
-```text
-UI local draft
-  ↓ 点击保存
-格式校验（空值 = clear；非空必须符合 sk- 规则）
-  ↓
-Keychain save / delete
-  ├─ 成功 → commit AppState.apiKey
-  └─ 失败 → runtime 继续保持上一个成功值 + UI 显示错误
-```
-
-因此保存失败不会出现 `runtime = new / Keychain = old`，清空失败也不会出现 `runtime = empty / Keychain = old`。用户主动编辑时 legacy plaintext 会退休，不允许旧 UserDefaults Key 在重启后回弹。
+本地缓存写入不调用 Keychain，不触发系统密码验证，也不存在 Keychain 迁移、故障恢复或重试状态。`apiKeyStorageState` 只表示 `.local` 或 `.empty`。
 
 ## DeepSeek API
 
@@ -405,9 +368,8 @@ Keychain save / delete
 ## 开发注意事项
 
 - `AppState` 只负责应用级编排，不要把 AI history 放回 AppState
-- API Key 主存储必须保持在 Keychain；不要重新把新 Key 写入 UserDefaults
-- legacy `deepseek_api_key` 仅允许用于升级迁移 fallback；Keychain read failure 时禁止 legacy write-back
-- API Key 编辑必须保持 local draft → persistence success → runtime commit 的事务顺序
+- API Key 主存储保持在 UserDefaults 的 `deepseek_api_key` 本地缓存
+- API Key 编辑保持 local draft → 格式校验 → 本地写入 → runtime commit 的顺序
 - `PanelSessionViewModel` 不持有 HTTP Task / generation / conversation history，也不负责 history window
 - `AiAgentSession` 是 AI 会话状态唯一写入点，并负责生产 service 请求的 history window
 - `AiHistoryWindow` 只裁 request snapshot，不得删除或改写 `AiAgentSession.messages`

@@ -457,7 +457,7 @@ final class SettingsViewController: NSViewController, NSTextFieldDelegate {
 
     private func refreshSaveButtonState() {
         // Product rule: only the current text matters. Any non-whitespace value is
-        // saveable, including an unchanged key or a retry after Keychain failure.
+        // Save the current local-cache value, including an unchanged key.
         let shouldEnable = !draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         saveButton.isEnabled = shouldEnable
         saveButton.alphaValue = shouldEnable ? 1 : 0.48

@@ -94,7 +94,7 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 
 ## 配置说明
 
-- **API Key**：存储于 macOS Keychain，用户需在菜单栏面板中自行填写自己的 DeepSeek API Key。
+- **API Key**：存储于当前用户的本地缓存，用户需在菜单栏面板中自行填写自己的 DeepSeek API Key。
 - **模型**：可在菜单栏面板中切换 `deepseek-v4-flash` / `deepseek-v4-pro`。
 - **请求超时**：45 秒。
 - **系统要求**：macOS 13+。
@@ -114,7 +114,7 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 
 ## 后续可增强
 
-- [x] API Key 从 UserDefaults 迁移到 Keychain
+- [x] API Key 使用 UserDefaults 本地缓存
 - [ ] 面板弹出/切换动画（淡入 + 上移）
 - [ ] 全局快捷键唤起
 - [ ] 历史记录

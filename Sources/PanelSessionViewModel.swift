@@ -11,7 +11,6 @@ final class PanelSessionViewModel: ObservableObject {
     @Published private(set) var mode: PanelMode = .toolbar
     @Published private(set) var selectedText = ""
     @Published var followUpInput = ""
-    @Published var isOriginalExpanded = false
     /// 重新划词后,上一个对话是否可通过工具栏气泡入口重新进入
     @Published private(set) var hasResumableConversation = false
     var onModeChanged: ((PanelMode) -> Void)?
@@ -98,10 +97,6 @@ final class PanelSessionViewModel: ObservableObject {
         currentAction == .chat
     }
 
-    var showsSourceTurn: Bool {
-        !isFreeChat && !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     var statusHint: String {
         if isLoading { return "正在生成" }
         if didStop { return "已停止" }
@@ -125,7 +120,6 @@ final class PanelSessionViewModel: ObservableObject {
         isDismissed = false
         selectedText = text
         followUpInput = ""
-        isOriginalExpanded = false
         mode = .toolbar
         onModeChanged?(.toolbar)
     }
@@ -173,7 +167,6 @@ final class PanelSessionViewModel: ObservableObject {
             close()
         case .chat:
             followUpInput = ""
-            isOriginalExpanded = false
             mode = .result
             onModeChanged?(.result)
             aiSession.startFreeChat()
@@ -197,7 +190,6 @@ final class PanelSessionViewModel: ObservableObject {
     func startNewConversation() {
         guard !isDismissed else { return }
         followUpInput = ""
-        isOriginalExpanded = false
         aiSession.startFreeChat()
     }
 

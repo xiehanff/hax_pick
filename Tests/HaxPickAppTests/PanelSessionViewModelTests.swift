@@ -24,7 +24,6 @@ final class PanelSessionViewModelTests: XCTestCase {
         viewModel.handlePrimaryAction(.chat)
 
         XCTAssertEqual(viewModel.currentAction, .chat)
-        XCTAssertFalse(viewModel.showsSourceTurn)
         XCTAssertEqual(viewModel.statusHint, "等待提问")
         XCTAssertTrue(viewModel.conversationMessages.isEmpty)
 
@@ -55,14 +54,12 @@ final class PanelSessionViewModelTests: XCTestCase {
 
         XCTAssertTrue(viewModel.isLoading)
         XCTAssertTrue(viewModel.canStartNewConversation)
-        XCTAssertTrue(viewModel.showsSourceTurn)
 
         viewModel.startNewConversation()
 
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertEqual(viewModel.currentAction, .chat)
         XCTAssertTrue(viewModel.conversationMessages.isEmpty)
-        XCTAssertFalse(viewModel.showsSourceTurn)
         XCTAssertEqual(viewModel.statusHint, "等待提问")
         XCTAssertEqual(viewModel.followUpInput, "")
     }

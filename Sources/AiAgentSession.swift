@@ -13,7 +13,6 @@ final class AiAgentSession: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var didStop = false
 
-    private(set) var draftRevision = 0
     private(set) var requestRevision = 0
 
     private enum RetryPlan {
@@ -471,10 +470,8 @@ final class AiAgentSession: ObservableObject {
 
         if let index = messages.firstIndex(where: { $0.id == assistantID }) {
             guard messages[index] != updated else { return }
-            draftRevision += 1
             messages[index] = updated
         } else if originalAssistant == nil {
-            draftRevision += 1
             messages.append(updated)
         }
     }

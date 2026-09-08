@@ -11,11 +11,6 @@ final class DeepSeekServiceTests: XCTestCase {
         )
     }
 
-    func testPersistableAPIKeyIgnoresEmptyValue() {
-        XCTAssertNil(AppState.persistableAPIKey(from: "   "))
-        XCTAssertEqual(AppState.persistableAPIKey(from: "  sk-test  "), "sk-test")
-    }
-
     func testStreamBuildsBearerRequestAndYieldsSSEChunks() async throws {
         let client = MockDeepSeekStreamingHTTPClient(
             lines: [
@@ -197,28 +192,6 @@ final class DeepSeekServiceTests: XCTestCase {
         }
 
         XCTAssertEqual(chunks.map(\.content), ["partial"])
-    }
-
-    func testCompleteAggregatesStreamedChunksAndHidesSuggestionProtocol() async throws {
-        let client = MockDeepSeekStreamingHTTPClient(
-            lines: [
-                "data: {\"choices\":[{\"delta\":{\"content\":\" 结果\"}}]}",
-                "data: {\"choices\":[{\"delta\":{\"content\":\"\\n<hax_follow_up_suggestions>\\n[\\\"继续解释\\\"]\\n</hax_follow_up_suggestions>\"}}]}",
-                "data: [DONE]",
-            ],
-            response: Self.httpResponse(statusCode: 200)
-        )
-        let service = DeepSeekService(
-            apiKeyProvider: { "test-key" },
-            modelProvider: { .flash },
-            streamingClient: client
-        )
-
-        let result = try await service.complete(
-            messages: [AiMessage(role: .user, content: "Hello")]
-        )
-
-        XCTAssertEqual(result, "结果")
     }
 
     func testResponseParserExtractsContextualSuggestions() {

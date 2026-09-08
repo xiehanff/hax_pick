@@ -1,135 +1,15 @@
 import AppKit
 import Combine
-import Security
-
-protocol APIKeyStoring {
-    func load() throws -> String?
-    func save(_ value: String) throws
-    func delete() throws
-}
-
-struct KeychainAPIKeyStore: APIKeyStoring {
-    private static let defaultService = "com.hax.haxpick.deepseek-api-key"
-    private static let defaultAccount = "deepseek-api-key"
-
-    private let service: String
-    private let account: String
-
-    init(
-        service: String = KeychainAPIKeyStore.defaultService,
-        account: String = KeychainAPIKeyStore.defaultAccount
-    ) {
-        self.service = service
-        self.account = account
-    }
-
-    func load() throws -> String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = kCFBooleanTrue
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        switch status {
-        case errSecSuccess:
-            guard let data = item as? Data,
-                  let value = String(data: data, encoding: .utf8) else {
-                throw APIKeyStoreError.invalidStoredValue
-            }
-            return value
-        case errSecItemNotFound:
-            return nil
-        default:
-            throw APIKeyStoreError.keychain(status)
-        }
-    }
-
-    func save(_ value: String) throws {
-        let data = Data(value.utf8)
-        let attributes = [kSecValueData as String: data]
-        let updateStatus = SecItemUpdate(
-            baseQuery as CFDictionary,
-            attributes as CFDictionary
-        )
-
-        if updateStatus == errSecSuccess {
-            return
-        }
-
-        guard updateStatus == errSecItemNotFound else {
-            throw APIKeyStoreError.keychain(updateStatus)
-        }
-
-        var addQuery = baseQuery
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        guard addStatus == errSecSuccess else {
-            throw APIKeyStoreError.keychain(addStatus)
-        }
-    }
-
-    func delete() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw APIKeyStoreError.keychain(status)
-        }
-    }
-
-    private var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-    }
-}
-
-enum APIKeyStoreError: LocalizedError {
-    case invalidStoredValue
-    case keychain(OSStatus)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidStoredValue:
-            return "Keychain 中的 DeepSeek API Key 无法读取。"
-        case .keychain(let status):
-            let message = SecCopyErrorMessageString(status, nil) as String? ?? "未知错误"
-            return "Keychain 操作失败（\(status)）：\(message)"
-        }
-    }
-}
 
 enum APIKeyStorageState: Equatable {
-    case keychain
-    case legacyMigrationPending
-    case keychainUnavailable
+    case local
     case empty
-
-    var canRetry: Bool {
-        switch self {
-        case .legacyMigrationPending, .keychainUnavailable:
-            return true
-        case .keychain, .empty:
-            return false
-        }
-    }
-
-    var needsAttention: Bool {
-        canRetry
-    }
-}
-
-struct APIKeyLoadResult: Equatable {
-    let value: String
-    let storageState: APIKeyStorageState
 }
 
 @MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
-    private static let legacyAPIKeyStorageKey = "deepseek_api_key"
+    private static let apiKeyStorageKey = "deepseek_api_key"
     private static let modelStorageKey = "deepseek_model"
 
     @Published private(set) var apiKey: String
@@ -148,7 +28,6 @@ final class AppState: ObservableObject {
 
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
 
-    private let apiKeyStore: any APIKeyStoring
     private let defaults: UserDefaults
     private let panelController = ToolbarPanelController()
     private lazy var permissionGuideController = PermissionGuideWindowController(appState: self)
@@ -173,18 +52,11 @@ final class AppState: ObservableObject {
     private var permissionPollTimer: Timer?
     private var didBecomeActiveObserver: NSObjectProtocol?
 
-    init(
-        apiKeyStore: any APIKeyStoring = KeychainAPIKeyStore(),
-        defaults: UserDefaults = .standard
-    ) {
-        self.apiKeyStore = apiKeyStore
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let initialCredential = Self.loadInitialCredential(
-            store: apiKeyStore,
-            legacyDefaults: defaults
-        )
-        self.apiKey = initialCredential.value
-        self.apiKeyStorageState = initialCredential.storageState
+        let storedKey = Self.normalizedAPIKey(from: defaults.string(forKey: Self.apiKeyStorageKey))
+        self.apiKey = storedKey
+        self.apiKeyStorageState = storedKey.isEmpty ? .empty : .local
         self.selectedModel = DeepSeekService.Model(
             rawValue: defaults.string(forKey: Self.modelStorageKey) ?? ""
         ) ?? .flash
@@ -196,25 +68,11 @@ final class AppState: ObservableObject {
 
     var apiKeyStorageStatusMessage: String {
         switch apiKeyStorageState {
-        case .keychain:
-            return "Key 已安全保存在 macOS Keychain。"
-        case .legacyMigrationPending:
-            return "当前仍使用旧版存储，Keychain 迁移尚未完成。"
-        case .keychainUnavailable:
-            return apiKey.isEmpty
-                ? "暂时无法访问 macOS Keychain，请重新保存。"
-                : "暂时无法访问 macOS Keychain，本次使用兼容凭证。"
+        case .local:
+            return "Key 已保存在本地缓存。"
         case .empty:
-            return "尚未配置 API Key，保存后会写入 macOS Keychain。"
+            return "尚未配置 API Key，保存后会写入本地缓存。"
         }
-    }
-
-    var canRetryAPIKeyStorage: Bool {
-        apiKeyStorageState.canRetry
-    }
-
-    var apiKeyStorageNeedsAttention: Bool {
-        apiKeyStorageState.needsAttention
     }
 
     func start() {
@@ -263,19 +121,21 @@ final class AppState: ObservableObject {
 
             if let errorMessage {
                 self.permissionRepairError = errorMessage
-                self.statusMessage = "无法自动重置权限，请在系统设置中手动删除旧条目"
-                self.openAccessibilitySettings()
+                self.statusMessage = "无法自动重置权限，请稍后重试"
+                self.requestAccessibilityPrompt()
                 return
             }
 
             self.permissionGranted = false
-            self.statusMessage = "旧权限记录已清除，请重新开启 HaxPick"
+            self.statusMessage = "旧权限记录已清除，请重新授权 HaxPick"
             self.startPermissionPollingIfNeeded()
-
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
-            self.openAccessibilitySettings()
+            self.requestAccessibilityPrompt()
         }
+    }
+
+    private func requestAccessibilityPrompt() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     nonisolated private static func resetAccessibilityPermission(bundleID: String) async -> String? {
@@ -317,33 +177,15 @@ final class AppState: ObservableObject {
             return false
         }
 
-        let success = Self.persistAPIKey(
-            trimmed,
-            store: apiKeyStore,
-            legacyDefaults: defaults
-        )
-
-        guard success else {
-            apiKeyStorageError = "API Key 未能保存到 macOS Keychain，请重试。"
-            return false
+        if trimmed.isEmpty {
+            defaults.removeObject(forKey: Self.apiKeyStorageKey)
+        } else {
+            defaults.set(trimmed, forKey: Self.apiKeyStorageKey)
         }
-
         apiKey = trimmed
-        apiKeyStorageState = trimmed.isEmpty ? .empty : .keychain
+        apiKeyStorageState = trimmed.isEmpty ? .empty : .local
         apiKeyStorageError = nil
         return true
-    }
-
-    @discardableResult
-    func retryAPIKeyStorage() -> Bool {
-        apiKeyStorageError = nil
-        let result = Self.loadInitialCredential(
-            store: apiKeyStore,
-            legacyDefaults: defaults
-        )
-        apiKey = result.value
-        apiKeyStorageState = result.storageState
-        return !result.storageState.canRetry
     }
 
     static func normalizedAPIKey(from storedValue: String?) -> String {
@@ -354,101 +196,6 @@ final class AppState: ObservableObject {
         return trimmed
     }
 
-    static func persistableAPIKey(from value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func loadInitialCredential(
-        store: any APIKeyStoring,
-        legacyDefaults: UserDefaults
-    ) -> APIKeyLoadResult {
-        let legacyValue = normalizedAPIKey(
-            from: legacyDefaults.string(forKey: legacyAPIKeyStorageKey)
-        )
-
-        do {
-            if let storedValue = try store.load() {
-                let normalized = normalizedAPIKey(from: storedValue)
-                if !normalized.isEmpty {
-                    legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-                    if normalized != storedValue {
-                        try? store.save(normalized)
-                    }
-                    return APIKeyLoadResult(value: normalized, storageState: .keychain)
-                }
-
-                do {
-                    try store.delete()
-                } catch {
-                    return APIKeyLoadResult(
-                        value: legacyValue,
-                        storageState: .keychainUnavailable
-                    )
-                }
-            }
-        } catch APIKeyStoreError.invalidStoredValue {
-            do {
-                try store.delete()
-            } catch {
-                return APIKeyLoadResult(
-                    value: legacyValue,
-                    storageState: .keychainUnavailable
-                )
-            }
-        } catch {
-            return APIKeyLoadResult(
-                value: legacyValue,
-                storageState: .keychainUnavailable
-            )
-        }
-
-        guard !legacyValue.isEmpty else {
-            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-            return APIKeyLoadResult(value: "", storageState: .empty)
-        }
-
-        do {
-            try store.save(legacyValue)
-            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-            return APIKeyLoadResult(value: legacyValue, storageState: .keychain)
-        } catch {
-            return APIKeyLoadResult(
-                value: legacyValue,
-                storageState: .legacyMigrationPending
-            )
-        }
-    }
-
-    @discardableResult
-    static func persistAPIKey(
-        _ value: String,
-        store: any APIKeyStoring,
-        legacyDefaults: UserDefaults
-    ) -> Bool {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty || !normalizedAPIKey(from: trimmed).isEmpty else {
-            return false
-        }
-
-        guard let persistedAPIKey = persistableAPIKey(from: trimmed) else {
-            do {
-                try store.delete()
-                legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-                return true
-            } catch {
-                return false
-            }
-        }
-
-        do {
-            try store.save(persistedAPIKey)
-            legacyDefaults.removeObject(forKey: legacyAPIKeyStorageKey)
-            return true
-        } catch {
-            return false
-        }
-    }
 
     func openAccessibilitySettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {

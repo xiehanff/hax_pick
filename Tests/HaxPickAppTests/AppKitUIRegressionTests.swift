@@ -4,6 +4,24 @@ import XCTest
 
 @MainActor
 final class AppKitUIRegressionTests: XCTestCase {
+    func testToolbarHeightIncludesGlassInsetsAndTextMetrics() {
+        let expectedMinimum = FloatingPanelLayout.toolbarContentHeight
+            + AppTheme.glassContentInset * 2
+
+        XCTAssertGreaterThanOrEqual(FloatingPanelLayout.toolbarSize.height, expectedMinimum)
+        XCTAssertEqual(
+            FloatingPanelLayout.toolbarSize.height,
+            expectedMinimum,
+            accuracy: 0.01,
+            "工具栏窗口高度应由内容行高加上下玻璃内边距决定"
+        )
+        XCTAssertGreaterThanOrEqual(
+            FloatingPanelLayout.toolbarContentHeight,
+            FloatingPanelLayout.toolbarTextFont.ascender - FloatingPanelLayout.toolbarTextFont.descender,
+            "按钮字体增大时，内容区域必须仍能容纳完整字形"
+        )
+    }
+
     func testDeepDiveDoesNotFadeCodeBlockThroughAncestorOpacity() async throws {
         let bubble = AiMessageBubble(
             message: AiMessage(role: .assistant, content: "正文\n\n```swift\nlet value = 42\n```"),

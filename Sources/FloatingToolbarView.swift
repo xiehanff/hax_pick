@@ -108,7 +108,7 @@ final class FloatingToolbarView: NSView {
         let dragHandle = ToolbarDragHandleView()
         dragHandle.translatesAutoresizingMaskIntoConstraints = false
         dragHandle.widthAnchor.constraint(equalToConstant: 15).isActive = true
-        dragHandle.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        dragHandle.heightAnchor.constraint(equalToConstant: FloatingPanelLayout.toolbarContentHeight).isActive = true
         row.addArrangedSubview(dragHandle)
         row.addArrangedSubview(AppBrandIconView(size: 34))
 
@@ -121,7 +121,7 @@ final class FloatingToolbarView: NSView {
             "润色",
             target: nil,
             action: nil,
-            font: AppFont.ui(ofSize: 12, weight: .semibold),
+            font: FloatingPanelLayout.toolbarTextFont,
             color: AppTheme.textPrimary
         )
         polish.toolTip = "暂未实现"
@@ -143,12 +143,6 @@ final class FloatingToolbarView: NSView {
 
     private enum ResizeEdge {
         case left, right, top, bottom
-        case topLeft, topRight, bottomLeft, bottomRight
-
-        var touchesLeft: Bool { self == .left || self == .topLeft || self == .bottomLeft }
-        var touchesRight: Bool { self == .right || self == .topRight || self == .bottomRight }
-        var touchesTop: Bool { self == .top || self == .topLeft || self == .topRight }
-        var touchesBottom: Bool { self == .bottom || self == .bottomLeft || self == .bottomRight }
     }
 
     private var resizeBand: CGFloat { AppTheme.glassContentInset }
@@ -159,18 +153,13 @@ final class FloatingToolbarView: NSView {
         let nearBottom = point.y < resizeBand
         let nearTop = point.y > bounds.height - resizeBand
 
-        if nearTop {
-            if nearLeft { return .topLeft }
-            if nearRight { return .topRight }
-            return .top
-        }
-        if nearBottom {
-            if nearLeft { return .bottomLeft }
-            if nearRight { return .bottomRight }
-            return .bottom
-        }
+        // Corners deliberately do not resize two axes at once. A resize
+        // gesture owns either width or height, which prevents the borderless
+        // window from submitting competing frame/layout updates.
         if nearLeft { return .left }
         if nearRight { return .right }
+        if nearTop { return .top }
+        if nearBottom { return .bottom }
         return nil
     }
 
@@ -182,10 +171,6 @@ final class FloatingToolbarView: NSView {
             case .left: position = 1 << 1
             case .bottom: position = 1 << 2
             case .right: position = 1 << 3
-            case .topLeft: position = (1 << 0) | (1 << 1)
-            case .topRight: position = (1 << 0) | (1 << 3)
-            case .bottomLeft: position = (1 << 2) | (1 << 1)
-            case .bottomRight: position = (1 << 2) | (1 << 3)
             }
             let selector = Selector(("frameResizeCursorFromPosition:inDirections:"))
             if let cursor = NSCursor.perform(
@@ -197,7 +182,7 @@ final class FloatingToolbarView: NSView {
             }
         }
         switch edge {
-        case .left, .right, .topLeft, .topRight, .bottomLeft, .bottomRight:
+        case .left, .right:
             return .resizeLeftRight
         case .top, .bottom:
             return .resizeUpDown
@@ -262,31 +247,18 @@ final class FloatingToolbarView: NSView {
             var width = startFrame.width
             var height = startFrame.height
 
-            if edge.touchesRight {
-                width = startFrame.width + delta.x
+            switch edge {
+            case .left:
+                width = min(max(minSize.width, startFrame.width - delta.x), visibleFrame.width)
+                x = startFrame.maxX - width
+            case .right:
+                width = min(max(minSize.width, startFrame.width + delta.x), visibleFrame.width)
+            case .top:
+                height = min(max(minSize.height, startFrame.height + delta.y), visibleFrame.height)
+            case .bottom:
+                height = min(max(minSize.height, startFrame.height - delta.y), visibleFrame.height)
+                y = startFrame.maxY - height
             }
-            if edge.touchesLeft {
-                width = startFrame.width - delta.x
-                x = startFrame.minX + delta.x
-            }
-            if edge.touchesTop {
-                height = startFrame.height + delta.y
-            }
-            if edge.touchesBottom {
-                height = startFrame.height - delta.y
-                y = startFrame.minY + delta.y
-            }
-
-            if width < minSize.width {
-                if edge.touchesLeft { x -= minSize.width - width }
-                width = minSize.width
-            }
-            if height < minSize.height {
-                if edge.touchesBottom { y -= minSize.height - height }
-                height = minSize.height
-            }
-            width = min(width, visibleFrame.width)
-            height = min(height, visibleFrame.height)
 
             // 取整 + 跳过无变化帧 + 拖拽中免同步重绘:亚像素 frame 逐帧
             // 摆动与每事件强制 display 是窗口抖动的两个来源
@@ -324,13 +296,13 @@ private final class ToolbarActionButton: NSButton {
         title = action.rawValue
         isBordered = false
         focusRingType = .none
-        let titleFont = AppFont.ui(ofSize: 12, weight: .semibold)
+        let titleFont = FloatingPanelLayout.toolbarTextFont
         font = titleFont
         setHaxTitle(action.rawValue, color: AppTheme.textPrimary, font: titleFont)
         contentTintColor = AppTheme.textPrimary
         target = self
         self.action = #selector(runAction)
-        heightAnchor.constraint(equalToConstant: 32).isActive = true
+        heightAnchor.constraint(equalToConstant: FloatingPanelLayout.toolbarContentHeight).isActive = true
     }
 
     required init?(coder: NSCoder) {
@@ -358,7 +330,7 @@ private final class ClosureIconButton: NSButton {
         self.toolTip = toolTip
         target = self
         action = #selector(runHandler)
-        heightAnchor.constraint(equalToConstant: 32).isActive = true
+        heightAnchor.constraint(equalToConstant: FloatingPanelLayout.toolbarContentHeight).isActive = true
     }
 
     required init?(coder: NSCoder) {

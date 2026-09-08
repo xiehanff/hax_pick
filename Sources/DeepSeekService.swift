@@ -204,19 +204,6 @@ struct DeepSeekService {
         }
     }
 
-    func complete(messages: [AiMessage]) async throws -> String {
-        var output = ""
-        for try await chunk in stream(messages: messages) {
-            output += chunk.content
-        }
-        let trimmed = AiResponseParser.parse(output).content
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw DeepSeekError.emptyResult
-        }
-        return trimmed
-    }
-
     private func makeRequest(
         apiKey: String,
         model: Model,

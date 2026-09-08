@@ -31,7 +31,6 @@ final class AiAgentSessionTests: XCTestCase {
     func testStreamingChunksAreCoalescedWithinThrottleWindow() async throws {
         let responder = DeferredStreamResponder()
         let session = AiAgentSession(stream: { responder.stream($0) }, publishIntervalNanoseconds: 1_000_000_000)
-        let startRevision = session.draftRevision
 
         session.runToolAction(.translate, sourceText: "hello")
         try await waitUntil { responder.hasPendingStream }
@@ -42,7 +41,6 @@ final class AiAgentSessionTests: XCTestCase {
 
         try await waitForCompletedAssistant(session, content: "你好！")
         XCTAssertEqual(session.visibleMessages.map(\.content), ["你好！"])
-        XCTAssertEqual(session.draftRevision - startRevision, 2)
     }
 
     func testThrottleFlushesPendingDraftWithoutWaitingForAnotherChunk() async throws {
@@ -53,13 +51,11 @@ final class AiAgentSessionTests: XCTestCase {
         try await waitUntil { responder.hasPendingStream }
         responder.yield("A")
         try await waitUntil { session.lastAssistantContent == "A" }
-        let firstRevision = session.draftRevision
 
         responder.yield("B")
         try await waitUntilEventually { session.lastAssistantContent == "AB" }
 
         XCTAssertTrue(session.isLoading)
-        XCTAssertGreaterThan(session.draftRevision, firstRevision)
 
         responder.finish()
         try await waitForCompletedAssistant(session, content: "AB")
