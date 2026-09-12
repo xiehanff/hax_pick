@@ -125,6 +125,7 @@
 
 ### 文档
 
+- **README 内容边界**：移除技术架构、面板规格和发布流程等技术说明，相关内容统一放入 `docs/ARCHITECTURE.md`。
 - **删除 PRD**：`docs/划词助手_PRD.md` 已废弃删除；功能与交互说明统一由 `README.md` 承载，架构与关键机制见 `docs/ARCHITECTURE.md`。
 - 新增 `assets/app-icon.png`（1024×1024 高清产品图标，提取自 `AppIcon.icns`），供外界引用展示；README 顶部居中展示产品图标。
 - 新增 `assets/ARCHITECTURE.md`，承接 `CLAUDE.md`/`AGENTS.md` 中的架构、构建方式、关键机制、开发注意事项，并补充应用图标章节；`CLAUDE.md`/`AGENTS.md` 精简为本地 AI 编码助手指引并退出 git 托管（加入 `.gitignore`）。

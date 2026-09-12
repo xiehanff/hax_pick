@@ -32,17 +32,6 @@
 
 结果区域支持 Markdown 渲染，像列表、加粗、分段这类格式会直接按排版后的样式显示。
 
-### 双通道划词读取
-
-1. **通道一（优先）**：通过 Accessibility API（`AXUIElement`）读取选中文本，并利用 `kAXBoundsForRangeParameterizedAttribute` 精确定位面板锚点。
-   - 从 `mouseDragged` 阶段开始读取，划出第一个词即可弹出工具栏；`mouseUp` 后再用最终选区校正工具栏内容。
-2. **通道二（兜底）**：若 Accessibility 读取失败，会检查焦点元素、鼠标下方文本元素及父层级，并对浏览器、IDE、Codex 等已知文本应用模拟 ⌘C。拖动期间不模拟复制，松开后使用最多 400ms 的完整兜底；读到结果后立即恢复原始剪贴板，若外部程序已先改写剪贴板则不覆盖。
-
-### 去重与防抖
-
-- 同一段文本 1.2 秒内不重复触发工具栏。
-- 用户关闭面板"忽略"的文本，在下次有效拖动前不再触发。
-
 ## 运行方式
 
 1. 用 Xcode 打开 `hax_pick.xcodeproj`
@@ -51,18 +40,9 @@
 4. 点击菜单栏图标，在紧凑的玻璃面板里填写 DeepSeek API Key
 5. 在浏览器、文档、编辑器等应用中划词测试
 
-### 发布 macOS 版本
-
-将版本标签推送到 GitHub 后，CI 会自动完成测试、Release 构建、DMG 打包，并把产物上传到对应的 GitHub Release：
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
 ## 使用说明
 
-- **划词**：在任意应用中用鼠标拖动选中文本（拖动距离需 ≥ 3pt）；AX 读到选区后工具栏可提前出现，拖动期间鼠标穿透，不打断继续划词；AX 不可用时松开后再通过复制兜底显示，最终以松开时的选区更新。
+- **划词**：在任意应用中用鼠标拖动选中文本，工具栏会自动出现；工具栏不会打断当前划词操作。
 - **焦点策略**：划词后的首层工具栏只悬浮展示，不主动抢占前台焦点；点击 AI 动作后才激活 HaxPick，以支持键盘关闭和继续提问。
 - **复制原文**：点击工具栏第一个"复制"按钮，原文直接复制到剪贴板，工具栏自动关闭。
 - **AI 动作**：点击翻译或解释后，工具栏切换为固定在当前屏幕右侧的结果侧栏，并自动请求 DeepSeek。
@@ -71,36 +51,6 @@ git push origin v1.0.0
 - **重新生成**：对当前结果不满意时点击"重新生成"。
 - **权限引导**：首次启动会自动弹出引导页；后续可从菜单栏面板重新打开。
 
-## 技术架构
-
-```
-HaxPickApp (SwiftUI @main, MenuBarExtra)
-  └── AppDelegate (启动入口)
-        └── AppState (单例，中心状态管理)
-              ├── SelectionMonitor (全局鼠标事件监听)
-              │     ├── AccessibilityTextService (AX API 读取)
-              │     └── ClipboardSelectionService (⌘C 兜底)
-              ├── ToolbarPanelController (NSPanel 管理)
-              │     ├── PanelSessionViewModel (面板状态)
-              │     └── FloatingToolbarView (SwiftUI 视图)
-              └── DeepSeekService (API 请求)
-```
-
-| 文件 | 职责 |
-|------|------|
-| `Sources/HaxPickApp.swift` | 应用入口，MenuBarExtra UI |
-| `Sources/AppDelegate.swift` | 启动回调 |
-| `Sources/AppState.swift` | 单例状态管理，协调各组件 |
-| `Sources/SelectionMonitor.swift` | 全局鼠标事件监听，划词检测与去重 |
-| `Sources/AccessibilityTextService.swift` | AX API 读取选中文本和坐标 |
-| `Sources/ClipboardSelectionService.swift` | 模拟 ⌘C 获取文本，剪贴板保存/恢复 |
-| `Sources/ToolbarPanelController.swift` | NSPanel 创建、定位、ESC/点击外关闭 |
-| `Sources/FloatingToolbarView.swift` | SwiftUI 工具栏/结果面板视图 + ViewModel |
-| `Sources/DeepSeekService.swift` | DeepSeek API 调用、Prompt 构建、错误处理 |
-| `Sources/PermissionGuideWindowController.swift` | 首次启动权限引导窗口控制 |
-| `Sources/PermissionGuideView.swift` | 首次启动权限引导页 |
-| `Sources/MenuBarContentView.swift` | 菜单栏紧凑玻璃面板 UI |
-
 ## 配置说明
 
 - **API Key**：存储于当前用户的本地缓存，用户需在菜单栏面板中自行填写自己的 DeepSeek API Key。
@@ -108,18 +58,6 @@ HaxPickApp (SwiftUI @main, MenuBarExtra)
 - **请求超时**：45 秒。
 - **系统要求**：macOS 13+。
 - **首次启动权限引导**：若未开启辅助功能，应用会自动弹出引导窗口；也可以从菜单栏面板重新打开。
-
-## 面板规格
-
-| 属性 | 工具栏模式 | 结果面板模式 |
-|------|-----------|-------------|
-| 尺寸 | 378×48pt | 可用宽度的 36%（460–560pt），可用高度的 82%（560–720pt） |
-| 圆角 | 24pt 全圆角 | 28pt |
-| 内边距 | 左侧拖动点阵与内容紧凑排列 | 白色阅读层距玻璃外缘 12pt + 内容区分区内边距 |
-| 屏幕边缘安全间距 | 16pt | 右侧 16pt，垂直居中 |
-| 风格 | 纯白背景，无边框无阴影 | 高透明玻璃外缘 + 白色磨砂微透明内容层 |
-
-> 工具栏取消磨玻璃、透明背景、边框和阴影，使用纯白背景适配白色窗口。复制、翻译、解释和深度理解均显示黑色文字，拖动点阵为黑色。工具栏任意空白位置均可拖动移动。结果面板和菜单栏面板继续使用玻璃外壳。
 
 ## 后续可增强
 
