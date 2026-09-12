@@ -15,7 +15,7 @@ swift build
 swift test
 ```
 
-Xcode 工程无独立测试 target，单元测试由 SPM `HaxPickAppTests` 承载。GitHub Actions 会在 PR 与 `main` push 上运行 `swift test` 和实际 macOS Xcode build；推送 `v*` 标签时构建 Release 版 macOS App，打包为 ZIP 并自动上传到同名 GitHub Release，产物也会作为 Actions artifact 保留 30 天。
+Xcode 工程无独立测试 target，单元测试由 SPM `HaxPickAppTests` 承载。GitHub Actions 会在 PR 与 `main` push 上运行 `swift test` 和实际 macOS Xcode build；推送 `v*` 标签时构建 Release 版 macOS App，制作包含 Applications 快捷方式的 DMG 并自动上传到同名 GitHub Release，产物也会作为 Actions artifact 保留 30 天。
 
 ## 平台约束
 

@@ -53,7 +53,7 @@
 
 ### 发布 macOS 版本
 
-将版本标签推送到 GitHub 后，CI 会自动完成测试、Release 构建、ZIP 打包，并把产物上传到对应的 GitHub Release：
+将版本标签推送到 GitHub 后，CI 会自动完成测试、Release 构建、DMG 打包，并把产物上传到对应的 GitHub Release：
 
 ```bash
 git tag v1.0.0
