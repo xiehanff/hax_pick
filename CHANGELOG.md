@@ -10,7 +10,7 @@
 
 ### 修复
 - **TUI 划词剪贴板污染**:剪贴板兜底不再先写入随机 marker；改为通过复制前后的 `changeCount` 判断模拟 ⌘C 是否成功，避免不响应复制快捷键的 agent TUI 将 `hax_pick_xxxxx` 一类 marker 留在系统剪贴板中。
-- **CI 构建产物**:CI 构建完成后自动打包并上传可下载的 macOS `.app` 压缩包，保留 7 天。
+- **CI 构建产物**:参考 plume-pdf 的构建流程，支持手动触发 CI，并自动上传带运行编号的 macOS `.app` 压缩包，保留 30 天。
 - **设置页 API Key 输入**:允许无标题栏设置窗口成为 key window，确保 API Key 输入框可以点击获得焦点并使用 ⌘V 粘贴；输入框改为 24pt 高、带内边距的圆角浅色卡片样式，区分占位符与 Key 文本字体，文本垂直居中且占位符字号为 11pt。
 - **模型选项**:设置页新增 `deepseek-v4-flash-vision-exp` 模型。
 - **B 类死代码清理**:移除仅用于旧测试计数的 `draftRevision`、已删除原文区对应的 `showsSourceTurn`/`isOriginalExpanded`，以及生产无调用的 `DeepSeekService.complete(messages:)` 聚合接口；保留流式/完整响应测试注入器、Panel 会话工厂和 `SelectionMonitor.stop()` 生命周期接口。
