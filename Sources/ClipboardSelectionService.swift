@@ -82,18 +82,16 @@ enum ClipboardSelectionService {
               !CGEventSource.buttonState(.combinedSessionState, button: .left) else { return nil }
         let pasteboard = NSPasteboard.general
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
-        let marker = "HaxPick-\(UUID().uuidString.prefix(8))"
+        let baselineChangeCount = pasteboard.changeCount
         let fallbackStartedAt = Date()
 
-        pasteboard.clearContents()
-        pasteboard.setString(marker, forType: .string)
-        let markerChangeCount = pasteboard.changeCount
-
+        // 不要先向系统剪贴板写入 marker。部分终端/TUI 不会响应模拟 ⌘C，
+        // marker 可能因此成为用户最终看到的剪贴板内容。直接用 changeCount
+        // 判断复制动作是否真正写入，等待期间也不会污染原剪贴板。
         copyAction()
         let observation = await waitForPasteboardResult(
             pasteboard: pasteboard,
-            marker: marker,
-            markerChangeCount: markerChangeCount,
+            baselineChangeCount: baselineChangeCount,
             fallbackStartedAt: fallbackStartedAt,
             timeout: timeout,
             userCopyShortcutDetected: userCopyShortcutDetected
@@ -108,15 +106,8 @@ enum ClipboardSelectionService {
             )
             return text
         case .timedOut:
-            // 只有 marker 写入之后再无任何剪贴板变化时才恢复旧快照。
-            // 一旦出现无法归因的变化，宁可保留新内容，也不能覆盖用户/其他应用的写入。
-            if observation.changeCount == markerChangeCount {
-                restoreSnapshotIfUnchanged(
-                    snapshot,
-                    to: pasteboard,
-                    expectedChangeCount: markerChangeCount
-                )
-            }
+            // 未发生变化时剪贴板本来就是原快照；发生变化时保留新内容，
+            // 避免覆盖用户或其他应用在等待期间写入的内容。
             return nil
         case .externalWrite:
             return nil
@@ -125,8 +116,7 @@ enum ClipboardSelectionService {
 
     private static func waitForPasteboardResult(
         pasteboard: NSPasteboard,
-        marker: String,
-        markerChangeCount: Int,
+        baselineChangeCount: Int,
         fallbackStartedAt: Date,
         timeout: TimeInterval,
         userCopyShortcutDetected: @escaping (Date) -> Bool
@@ -145,14 +135,13 @@ enum ClipboardSelectionService {
             let currentString = pasteboard.string(forType: .string)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let didChangeExternally = pasteboardChanged(
-                since: markerChangeCount,
+                since: baselineChangeCount,
                 currentChangeCount: observedChangeCount
             )
             let didDetectUserCopyShortcut = userCopyShortcutDetected(fallbackStartedAt)
 
             if let result = classifyPasteboardObservation(
                 currentString: currentString,
-                marker: marker,
                 didChangeExternally: didChangeExternally,
                 didDetectUserCopyShortcut: didDetectUserCopyShortcut
             ) {
@@ -178,8 +167,8 @@ enum ClipboardSelectionService {
         )
     }
 
-    static func pasteboardChanged(since markerChangeCount: Int, currentChangeCount: Int) -> Bool {
-        currentChangeCount != markerChangeCount
+    static func pasteboardChanged(since baselineChangeCount: Int, currentChangeCount: Int) -> Bool {
+        currentChangeCount != baselineChangeCount
     }
 
     static func shouldRestoreSnapshot(observedChangeCount: Int, currentChangeCount: Int) -> Bool {
@@ -188,18 +177,16 @@ enum ClipboardSelectionService {
 
     static func classifyPasteboardObservation(
         currentString: String?,
-        marker: String,
         didChangeExternally: Bool,
         didDetectUserCopyShortcut: Bool
     ) -> PasteboardCopyResult? {
         if didDetectUserCopyShortcut,
            let currentString,
-           !currentString.isEmpty,
-           currentString != marker {
+           !currentString.isEmpty {
             return .externalWrite
         }
 
-        if let currentString, !currentString.isEmpty, currentString != marker {
+        if let currentString, !currentString.isEmpty, didChangeExternally {
             return .copiedText(currentString)
         }
 

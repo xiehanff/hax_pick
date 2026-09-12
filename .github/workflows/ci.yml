@@ -54,3 +54,17 @@ jobs:
           test "$(sips -g pixelHeight "$RESOURCES/MenuBarIcon.png" | awk '/pixelHeight/ {print $2}')" = "16"
           test "$(sips -g pixelWidth "$RESOURCES/MenuBarIcon@2x.png" | awk '/pixelWidth/ {print $2}')" = "32"
           test "$(sips -g pixelHeight "$RESOURCES/MenuBarIcon@2x.png" | awk '/pixelHeight/ {print $2}')" = "32"
+
+      - name: Package macOS app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/haxpick-build/hax_pick.app" \
+            "$RUNNER_TEMP/HaxPick-macOS.zip"
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: HaxPick-macOS
+          path: ${{ runner.temp }}/HaxPick-macOS.zip
+          if-no-files-found: error
+          retention-days: 7

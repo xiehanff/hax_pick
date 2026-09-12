@@ -2,8 +2,6 @@ import XCTest
 @testable import HaxPickApp
 
 final class ClipboardSelectionServiceTests: XCTestCase {
-    private let marker = "HaxPick-1234"
-
     func testClipboardFallbackTextContexts() {
         for attribute in [kAXSelectedTextAttribute, kAXNumberOfCharactersAttribute] {
             XCTAssertTrue(
@@ -58,7 +56,7 @@ final class ClipboardSelectionServiceTests: XCTestCase {
         let scenarios: [(text: String?, changed: Bool, userCopy: Bool, expected: PasteboardCopyResult?)] = [
             ("copied text", true, false, .copiedText("copied text")),
             (nil, true, false, .externalWrite),
-            (marker, false, false, nil),
+            ("old clipboard text", false, false, nil),
             ("", false, false, nil),
             ("manual copy", true, true, .externalWrite),
         ]
@@ -66,7 +64,6 @@ final class ClipboardSelectionServiceTests: XCTestCase {
         for scenario in scenarios {
             let result = ClipboardSelectionService.classifyPasteboardObservation(
                 currentString: scenario.text,
-                marker: marker,
                 didChangeExternally: scenario.changed,
                 didDetectUserCopyShortcut: scenario.userCopy
             )
@@ -74,7 +71,7 @@ final class ClipboardSelectionServiceTests: XCTestCase {
         }
     }
 
-    func testPasteboardChangeIsMeasuredFromMarkerBaseline() {
+    func testPasteboardChangeIsMeasuredFromBaseline() {
         XCTAssertFalse(
             ClipboardSelectionService.pasteboardChanged(
                 since: 42,

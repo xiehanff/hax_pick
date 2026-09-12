@@ -70,7 +70,7 @@ HaxPickApp
 3. 拖动阶段只读 AX，禁止模拟 ⌘C 干扰未结束的选区手势。AX 成功即可提前显示工具栏；失败则等待鼠标松开后兜底。
 4. `mouseUp` 再执行一次 AX 重试与完整 ⌘C 兜底（CGEvent + AppleScript，最多等待 400ms），用于把拖动中显示的局部文本更新为最终选区。
 
-AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动起点下方的元素及各自父层级，覆盖网页的 `AXWebArea` / `AXStaticText`、编辑器的 `AXTextArea` / `AXTextField`，以及 Chrome、Safari、Edge、Firefox、VS Code、Xcode、JetBrains、Codex 等已知文本应用。异步探测用 drag generation 隔离旧手势，最终读取等待前后也检查 generation，避免旧结果覆盖新手势；模拟复制前检查左键状态，若已开始下一次拖动则跳过。被取消或超时的剪贴板探测会恢复原剪贴板内容。
+AX 查找不只依赖 focused element，还会检查鼠标当前位置、拖动起点下方的元素及各自父层级，覆盖网页的 `AXWebArea` / `AXStaticText`、编辑器的 `AXTextArea` / `AXTextField`，以及 Chrome、Safari、Edge、Firefox、VS Code、Xcode、JetBrains、Codex 等已知文本应用。异步探测用 drag generation 隔离旧手势，最终读取等待前后也检查 generation，避免旧结果覆盖新手势；模拟复制前检查左键状态，若已开始下一次拖动则跳过。剪贴板兜底不会预写 marker，而是记录复制前的 `changeCount`，仅在复制动作实际写入新内容后读取；被取消或超时且没有写入时不修改原剪贴板，发现外部写入时也不会覆盖。
 
 关键阈值：
 
